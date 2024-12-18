@@ -2,19 +2,28 @@
 #include <iomanip>
 #include <cmath>
 
-double objective_function(double* booster_exposure_x, unsigned short int* booster_amount, double hammer_x0) {
+double objective_function(double* booster_exposures_x, unsigned short int* booster_amounts, double power_H_x0, unsigned int power_H_amount, double target_x) {
 	// not yet goning to return minimum or max
-	double result = hammer_x0;
+	double power_H_x1 = power_H_x0;
 	for (int i = 0; i < 12; i++) {
-		result += booster_amount[i] * booster_exposure_x[i];
+		power_H_x1 += booster_amounts[i] * booster_exposures_x[i];
 	}
-	return result;
+	double distance = 0.0 - power_H_x1; // power_H to Hammer distance
+	double f = (1.0 - distance / 8.0) * 1.0 / distance;
+	
+	double hammer_u0 = f * power_H_amount * distance;
+	double hammer_x1 = hammer_u0;
+	// std::cout << "First position of hammer x Local: " << hammer_x1 << std::endl;
+
+	return hammer_x1;
 }
 
 int main() {
 
 	std::cout << std::setprecision(17);
 	//// In-game Conditions
+	double center_x = -86214.5;						//  -86214.587930.5
+
 	double booster_x_values[12] = { 
 		-86234.78586161736,
 		-86235.03129429705,
@@ -39,26 +48,57 @@ int main() {
 	double power_H_u1_value = -3.5189356402947953;		// -3.5189356402947953 37.507269269830815 -1.158739770801276E-14
 	
 	// Function parameters
-	double booster_x_exposure[12]; // Is also the distance it pushes the hammer along x
+	double booster_x_exposures[12]; // Is also the distance it pushes the hammer along x
 	std::cout << "Booster Exposure: " << std::endl;
 	for (int i = 0; i < 12; i++) {
 		double distance = power_H_x0_value - booster_x_values[i];
 		double f = (1.0 - distance / 8.0) * 1.0 / distance;
-		booster_x_exposure[i] = distance * f;
-		std::cout << "  booster[" << i << "]: " << booster_x_exposure[i] << std::endl;
+		booster_x_exposures[i] = distance * f;
+		std::cout << "  booster[" << i << "]: " << booster_x_exposures[i] << std::endl;
 	}
+	double power_H_x0 = power_H_x1_value - center_x; // Virtual Starting location of the hammer
+	unsigned int power_H_amount = 36;
 
-	double power_H_x0 = power_H_x1_value; // Virtual Starting location of the hammer
+	// Function Target
+	double target_x = 100.0;
+
+
 	
 	// Result?
+	double hammer_x1;
 	unsigned short int booster_amount[12] = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }; // Limited to Between 0-12
-	double result = objective_function(booster_x_exposure, booster_amount, power_H_x0);
 	
-	std::cout << "Hammer's Power location: " << result << std::endl;
-	std::cout << "End!" << std::endl;
+	std::cout << "{ 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
+	booster_amount[11] = 7;
+	std::cout << "{ 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
+	booster_amount[11] = 6;
+	booster_amount[10] = 7;
+	std::cout << "{ 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 6 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
+	booster_amount[11] = 7;
+	std::cout << "{ 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
+	booster_amount[0] = 0;
+	booster_amount[1] = 0;
+	booster_amount[11] = 11;
+	std::cout << "{ 0, 0, 6, 6, 6, 6, 6, 6, 6, 6, 7, 11 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
+	booster_amount[11] = 12;
+	std::cout << "{ 0, 0, 6, 6, 6, 6, 6, 6, 6, 6, 7, 12 } Booster Configuration: " << std::endl;
+	hammer_x1 = objective_function(booster_x_exposures, booster_amount, power_H_x0, power_H_amount, target_x) + center_x;
+	std::cout << "  First position of hammer x Global: " << hammer_x1 << std::endl;
+
 	return 0;
 }
-
-
-// all 6
-// -86219.89860780213 316.33397374591794 87930.5
