@@ -129,6 +129,9 @@
   <ItemGroup>
     <ClCompile Include="Solver.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="optimization.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

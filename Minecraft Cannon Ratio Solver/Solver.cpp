@@ -2,8 +2,44 @@
 #include <iomanip>
 #include <cmath>
 
+#include "optimization.h"
 
-double objective_function(
+double debug_objective(
+	double* booster_toHP_x_exposures,				// To check if the Hammer's power is in range
+	std::vector<unsigned short>& booster_amounts,	// To check if the Hammer's power is in range
+	double power_H_x1i_L,							// To check if the Hammer's power is in range
+	double* booster_x_Hrange_virtual_exposure,		// To compute Hammer's final position
+	double power_H_x0virtual_L,						// Hammer's virtual initial position
+	double target_x_L								// To minimize
+) {
+	// Check if this will place the hammer's power within range
+	// Position of hammer's power with current boosters:
+	double power_H_x1_L = power_H_x1i_L;
+	for (int i = 0; i < 12; i++) {
+		power_H_x1_L += booster_amounts[i] * booster_toHP_x_exposures[i];
+	}
+	// Check if the Hammer's power is within explosion range
+	if (power_H_x1_L > -1 || power_H_x1_L < -7.5) { // TODO: Play with bounds
+		// return invalid
+		// std::cout << "  Hammer's power is out of range/ahead of it" << std::endl; // Penalty funciton
+		return 10000000.0; // should be infinity
+	}
+	// else
+	std::cout << "  Hammer's Power x position (local): " << power_H_x1_L << std::endl;
+	std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + -86214.5 << std::endl;
+	// Find the final position of the Hammer
+	double hammer_x17_L = power_H_x0virtual_L;
+	for (int i = 0; i < 12; i++) {
+		hammer_x17_L += booster_amounts[i] * booster_x_Hrange_virtual_exposure[i];
+	}
+	std::cout << "  Hammer at 17gt x position (local): " << hammer_x17_L << std::endl;
+	std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + -86214.5 << std::endl;
+	// Compute the Error
+	double error = abs(hammer_x17_L - target_x_L);
+	return error;
+}
+
+double compute_objective(
 	double* booster_toHP_x_exposures,			// To check if the Hammer's power is in range
 	unsigned short int* booster_amounts,		// To check if the Hammer's power is in range
 	double power_H_x1i_L,						// To check if the Hammer's power is in range
@@ -20,20 +56,21 @@ double objective_function(
 	// Check if the Hammer's power is within explosion range
 	if (power_H_x1_L > -1 || power_H_x1_L < -7.5) { // TODO: Play with bounds
 		// return invalid
-		std::cout << "  Hammer's power is out of range/ahead of it" << std::endl;
+		// std::cout << "  Hammer's power is out of range/ahead of it" << std::endl; // Penalty funciton
+		return 10000000.0; // should be infinity
 	}
 	// else
-	std::cout << "  Hammer's Power x position (local): " << power_H_x1_L << std::endl;
-	std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + -86214.5 << std::endl;
+	// std::cout << "  Hammer's Power x position (local): " << power_H_x1_L << std::endl;
+	// std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + -86214.5 << std::endl;
 	// Find the final position of the Hammer
 	double hammer_x17_L = power_H_x0virtual_L;
 	for (int i = 0; i < 12; i++) {
 		hammer_x17_L += booster_amounts[i] * booster_x_Hrange_virtual_exposure[i];
 	}
-	std::cout << "  Hammer at 17gt x position (local): " << hammer_x17_L << std::endl;
-	std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + -86214.5 << std::endl;
+	// std::cout << "  Hammer at 17gt x position (local): " << hammer_x17_L << std::endl;
+	// std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + -86214.5 << std::endl;
 	// Compute the Error
-	double error = hammer_x17_L - target_x_L;
+	double error = abs(hammer_x17_L - target_x_L);
 	return error;
 }
 
@@ -64,7 +101,7 @@ double hammer_projectile_after_17gt_L(double* booster_toHP_x_exposures, unsigned
 }
 
 int main() {
-	/* Output Formatting */
+	/************* Output Formatting *************/
 	std::cout << std::setprecision(17);
 
 	/* In-game Conditions (Global) */
@@ -93,7 +130,7 @@ int main() {
 	// Amounts 
 	unsigned int power_H_amount = 36; // minimum power
 	
-	/* Computated Quantities (Local) */
+	/************* Computated Quantities (Local) *************/
 	// Positions
 	double power_H_x0_L = power_H_x0_G - center_x; // Local Starting location of the hammer
 	std::cout << "power_H_x0_L: " << power_H_x0_L << std::endl;
@@ -149,21 +186,59 @@ int main() {
 	std::cout << "Virtual initial Hammer Position (local): " << power_H_x0virtual_L << std::endl;
 	std::cout << "Virtual initial Hammer Position (global): " << power_H_x0virtual_L + center_x << std::endl;
 
+
+	/************* Optimization problem *************/
 	// Function Target
-	double target_x_L = 100.0; // we want to find Hammer that is as close to 100.0 blocks away.
+	double target_x_L = 160.0; // we want to find Hammer that is as close to 100.0 blocks away.
 	double error;
 
+	/*
 	// What is the error of the reference case?
 	std::cout << "\nReference Booster Configuration { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }: " << std::endl;
-	error = objective_function(booster_toHP_x_exposures, booster_ref_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	error = debug_objective(booster_toHP_x_exposures, booster_ref_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	std::cout << "  Error: " << error << std::endl;
+	*/
+
+	/* Define the objective function lambda */
+	auto objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
+		unsigned short booster_amounts_array[12];
+		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
+		return compute_objective(
+			booster_toHP_x_exposures,
+			booster_amounts_array,
+			power_H_x1i_L,
+			booster_x_Hrange_virtual_exposure,
+			power_H_x0virtual_L,
+			target_x_L
+		);
+	};
+
+	/* Initialize booster amounts */
+	std::vector<unsigned short> booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
+
+	/* Perform optimization */
+	double best_error = optimization::optimize_boosters_simulated_annealing(
+		objective_function,
+		booster_amounts,	// Just to get the size of the vector
+		0,					// Lower bound
+		12,					// Upper bound
+		1000000				// Max iterations
+	);
+
+	/* Display results */
+	std::cout << "\nOptimal Booster Configuration: { ";
+	for (size_t i = 0; i < booster_amounts.size(); ++i) {
+		std::cout << booster_amounts[i] << (i < booster_amounts.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "Optimal Error: " << best_error << "\n";
+	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
 
-	// Test different ratios for validity
-	unsigned short int booster_amounts[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-	std::cout << "\nTest Booster Configuration { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }: " << std::endl;
-	error = objective_function(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	/* Test a specific ratio */
+	std::cout << "Test Ratio:" << std::endl;
+	booster_amounts = { 5, 7, 0, 9, 1, 1, 8, 7, 4, 4, 5, 8 };
+	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
-
-
 	return 0;
 }
