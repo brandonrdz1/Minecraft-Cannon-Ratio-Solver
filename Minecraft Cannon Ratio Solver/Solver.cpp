@@ -192,13 +192,6 @@ int main() {
 	double target_x_L = 160.0; // we want to find Hammer that is as close to 100.0 blocks away.
 	double error;
 
-	/*
-	// What is the error of the reference case?
-	std::cout << "\nReference Booster Configuration { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }: " << std::endl;
-	error = debug_objective(booster_toHP_x_exposures, booster_ref_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
-	std::cout << "  Error: " << error << std::endl;
-	*/
-
 	/* Define the objective function lambda */
 	auto objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
 		unsigned short booster_amounts_array[12];
@@ -216,28 +209,95 @@ int main() {
 	/* Initialize booster amounts */
 	std::vector<unsigned short> booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
 
-	/* Perform optimization */
-	double best_error = optimization::optimize_boosters_simulated_annealing(
+	/* Perform Simulated Annealing optimization */
+	double best_error_SA = optimization::optimize_boosters_simulated_annealing(
 		objective_function,
 		booster_amounts,	// Just to get the size of the vector
 		0,					// Lower bound
 		12,					// Upper bound
-		1000000				// Max iterations
+		1000000,			// Max iterations
+		1000.0,				// Initial temperature
+		0.999999			// Cooling rate
 	);
-
-	/* Display results */
-	std::cout << "\nOptimal Booster Configuration: { ";
+	// Display results 
+	std::cout << "\nOptimal Simulated Annealing Booster Configuration: { ";
 	for (size_t i = 0; i < booster_amounts.size(); ++i) {
 		std::cout << booster_amounts[i] << (i < booster_amounts.size() - 1 ? ", " : " ");
 	}
 	std::cout << "}\n";
-	std::cout << "Optimal Error: " << best_error << "\n";
+	std::cout << "  Optimal Error: " << best_error_SA << "\n";
 	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
 
+	/* Perform Brute Force optimization (really slow) */
+	double best_error_BF = optimization::optimize_boosters_brute_force(
+		objective_function,
+		booster_amounts,	// Just to get the size of the vector
+		5,					// Lower bound
+		7					// Upper bound
+	);
+	// Display results
+	std::cout << "\nOptimal Brute Force Booster Configuration: { ";
+	for (size_t i = 0; i < booster_amounts.size(); ++i) {
+		std::cout << booster_amounts[i] << (i < booster_amounts.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "  Optimal Error: " << best_error_BF << "\n";
+	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	std::cout << "  Error: " << error << std::endl;
+
+	/* Perform Particle Swarm optimization */
+	double best_error_PS = optimization::optimize_boosters_particle_swarm(
+		objective_function,
+		booster_amounts,	// Just to get the size of the vector
+		0,					// Lower bound
+		12,					// Upper bound
+		500,				// Swarm size
+		1000,				// Max iterations
+		0.5,				// Inertia weight
+		1.5,				// Congnitive weight
+		1.5					// Social weight
+	);
+	// Display results
+	std::cout << "\nOptimal Particle Swarm Booster Configuration (not complete): { ";
+	for (size_t i = 0; i < booster_amounts.size(); ++i) {
+		std::cout << booster_amounts[i] << (i < booster_amounts.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "  Optimal Error: " << best_error_PS << "\n";
+	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	std::cout << "  Error: " << error << std::endl;
+
+	/* Perform Genetic Algorithm optimization */
+	double best_error_GA = optimization::optimize_boosters_genetic(
+		objective_function,
+		booster_amounts,	// Just to get the size of the vector
+		0,					// Lower bound
+		12,					// Upper bound
+		500,				// Population size
+		1000,				// Generations
+		0.1,				// Mutation rate
+		0.7					// Crossover rate
+	);
+	// Display results
+	std::cout << "\nOptimal Genetic Algorithm Booster Configuration (not complete): { ";
+	for (size_t i = 0; i < booster_amounts.size(); ++i) {
+		std::cout << booster_amounts[i] << (i < booster_amounts.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "  Optimal Error: " << best_error_GA << "\n";
+	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
+	std::cout << "  Error: " << error << std::endl;
+
+
+
+
+
+
+
 	/* Test a specific ratio */
-	std::cout << "Test Ratio:" << std::endl;
-	booster_amounts = { 5, 7, 0, 9, 1, 1, 8, 7, 4, 4, 5, 8 };
+	std::cout << "\nTest Ratio:" << std::endl;
+	booster_amounts = { 8, 8, 0, 7, 9, 10, 3, 0, 11, 8, 6, 12 };
 	error = debug_objective(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, power_H_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
 	return 0;
