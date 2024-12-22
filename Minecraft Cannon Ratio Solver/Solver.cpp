@@ -4,6 +4,10 @@
 
 #include "optimization.h"
 namespace hammer {
+	double explosion_height = 0.061250001192092896;
+	double gravity = -0.04;
+	double drag = 0.98;
+
 	void compute_booster_to_power_x_exposure(double power_x0, double* booster_x_values_G, double* booster_to_power_x_exposures) {
 		std::cout << "Booster to Hammer's Power Exposure: " << std::endl;
 		for (int i = 0; i < 12; i++) {
@@ -144,6 +148,131 @@ namespace hammer {
 }
 
 namespace arrow {
+
+	double arrow_eye = 0.12999999523162842;
+	double gravity = -0.05f;
+	double drag = 0.99f;
+
+	void compute_booster_to_power_x_exposure(double power_x0, double* booster_x_values_G, double* booster_to_power_x_exposures) {
+		std::cout << "Booster to Arrows's Power Exposure: " << std::endl;
+		for (int i = 0; i < 12; i++) {
+			double distance = power_x0 - booster_x_values_G[i];
+			double f = (1.0 - distance / 8.0) * 1.0 / distance; // Just to keep correct calculations TODO: simplify
+			booster_to_power_x_exposures[i] = distance * f;			// Output
+
+			std::cout << "  booster[" << i << "] (blocks/tick): " << booster_to_power_x_exposures[i] << std::endl;
+		}
+		return;
+	}
+
+	void compute_arrow_x17gt_L_map(double* arrow_x17_map, double* arrow_u17_map, double power_A_amount) {
+		// double x_min = -7.5, x_max = -0.5, step = 0.05;
+		// double power_x_arr[141];
+		// for (int i = 0; i <= 140; ++i) { power_x_arr[i] = x_min + i * step; }
+		// for (int i = 0; i <= 140; ++i) { std::cout << "power_loc_arr[" << i << "] = " << power_x_arr[i] << std::endl; }
+		
+		double dy_squared = arrow_eye * arrow_eye;
+		for (int i = 0; i <= 140; i++) {
+			double dx = -7.5 + i * 0.05;
+			double distance = std::sqrt(dx * dx + dy_squared);
+			double f = (1.0 - distance / 8.0);
+			double f0 = f;
+
+			// elaborate way to compute initial velocity, similar to game
+			for (int j = 1; j < power_A_amount; j++) { f0 += f; }
+			
+			// freefall
+			double x = 0.0;		// initial local position of the arrow
+			double v = f0;		// initial velocity of the arrow
+			for (int j = 0; j < 17; j++) {
+				x += v;
+				v *= drag;
+			}
+			arrow_x17_map[i] = x;
+			arrow_u17_map[i] = v;
+
+			//std::cout << dx << ", " << arrow_u17_map[i] << std::endl;
+		}
+		return;
+	}
+
+	double compute_objective(
+		double* booster_toAP_x_exposures,			// To check if the Hammer's power is in range
+		unsigned short int* booster_amounts,		// To check if the Hammer's power is in range
+		double power_A_x1i_L,						// To check if the Hammer's power is in range
+		double* arrow_x17_map,	
+		double target_x_L							// To minimize
+	) {
+		// Check if this will place the hammer's power within range
+		// Position of hammer's power with current boosters:
+		double power_A_x1_L = power_A_x1i_L;
+		for (int i = 0; i < 12; i++) {
+			power_A_x1_L += booster_amounts[i] * booster_toAP_x_exposures[i];
+		}
+		// Check if the Hammer's power is within explosion range
+		if (power_A_x1_L > -1 || power_A_x1_L < -7.5) { // TODO: Play with bounds
+			return 10000000.0; // should be infinity
+		}
+		
+		// Map Lookup
+		// Find the final position of the Hammer
+		int lower_index = static_cast<int>((power_A_x1_L - -7.5) / 0.05);
+		int upper_index = lower_index + 1;
+
+		// Fetch corresponding values from the map
+		double lower_value = arrow_x17_map[lower_index];
+		double upper_value = arrow_x17_map[upper_index];
+
+		// Linear interpolation
+		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
+		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
+
+		// Compute the error
+		double error = std::abs(arrow_x17_L - target_x_L);
+		return error;
+	}
+
+	double debug_objective(
+		double* booster_toAP_x_exposures,				// To check if the Hammer's power is in range
+		std::vector<unsigned short>& booster_amounts,	// To check if the Hammer's power is in range
+		double power_A_x1i_L,							// To check if the Hammer's power is in range
+		double* arrow_x17_map,
+		double target_x_L								// To minimize
+	) {
+		// Check if this will place the hammer's power within range
+		// Position of hammer's power with current boosters:
+		double power_A_x1_L = power_A_x1i_L;
+		for (int i = 0; i < 12; i++) {
+			power_A_x1_L += booster_amounts[i] * booster_toAP_x_exposures[i];
+		}
+		// Check if the Hammer's power is within explosion range
+		if (power_A_x1_L > -1 || power_A_x1_L < -7.5) { // TODO: Play with bounds
+			return 10000000.0; // should be infinity
+		}
+
+		// Arrow's Power initial position
+		std::cout << "  Arrow's Power x position (local): " << power_A_x1_L << std::endl;
+		std::cout << "  Arrow's Power x position (global): " << power_A_x1_L + -86214.5 << std::endl;
+
+		// Map Lookup
+		// Find the final position of the Hammer
+		int lower_index = static_cast<int>((power_A_x1_L - -7.5) / 0.05);
+		int upper_index = lower_index + 1;
+
+		// Fetch corresponding values from the map
+		double lower_value = arrow_x17_map[lower_index];
+		double upper_value = arrow_x17_map[upper_index];
+
+		// Linear interpolation
+		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
+		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
+		std::cout << "  Hammer at 17gt x position (local): " << arrow_x17_L << std::endl;
+		std::cout << "  Hammer at 17gt x position (global): " << arrow_x17_L + -86214.5 << std::endl;
+
+		// Compute the error
+		double error = std::abs(arrow_x17_L - target_x_L);
+		return error;
+	}
 }
 
 int main() {
@@ -183,7 +312,7 @@ int main() {
 	double arrow_booster_x_values_G[12] = {
 		-86234.66023655233, -86234.92907985931, -86235.21242460351,
 		-86235.50970078005, -86235.82027033666, -86236.14342772469,
-		-86234.53621773126, -86234.8832512168, -86235.2447882072, 
+		-86234.53621773126, -86234.8832512168, -86235.2447882072,
 		-86235.62025871217, -86236.00902470213, -86236.41038066245
 	};
 	// State before/after afected by ratio and constant booster and amount of hammer's power amount
@@ -196,14 +325,18 @@ int main() {
 	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the hammer
 	double power_A_x1i_L = power_A_x1i_G - center_x;	// Local Starting location of the hammer
 	double booster_toAP_x_exposures[12];				// The effect of the hammer's power's boosters to the hammer's power
-
+	arrow::compute_booster_to_power_x_exposure(power_A_x0_G, arrow_booster_x_values_G, booster_toAP_x_exposures);
+	std::cout << "starting loc of arrow power w/out booster " << power_A_x1i_L << std::endl;
+	double arrow_x17_map[141]; // based on 36 tnt
+	double arrow_u17_map[141];
+	arrow::compute_arrow_x17gt_L_map(arrow_x17_map, arrow_u17_map, power_A_amount);
 
 
 	/************* Optimization problem *************/
 	double target_x_L = 160.0; // we want to find Hammer that is as close to 100.0 blocks away.
 	double error;
 
-	// Define the objective function lambda
+	// Define the hammer objective function lambda
 	auto hammer_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
 		unsigned short booster_amounts_array[12];
 		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
@@ -216,20 +349,36 @@ int main() {
 			target_x_L
 		);
 	};
+	
+	// Define the arrow objective function lambda
+	auto arrow_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
+		unsigned short booster_amounts_array[12];
+		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
+		return arrow::compute_objective(
+			booster_toAP_x_exposures,
+			booster_amounts_array,
+			power_A_x1i_L,
+			arrow_x17_map,
+			target_x_L
+		);
+		};
+
 	/* Initialize booster amounts */
 	std::vector<unsigned short> hammer_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
-
+	std::vector<unsigned short> arrow_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
 
 	/* Perform Simulated Annealing optimization */
 	double best_error_SA = optimization::optimize_boosters_simulated_annealing(
 		hammer_objective_function,
 		hammer_booster_amounts,	// Just to get the size of the vector
-		0,					// Lower bound
-		12,					// Upper bound
-		1000000,			// Max iterations
-		1000.0,				// Initial temperature
-		0.999999			// Cooling rate
+		0,						// Lower bound
+		12,						// Upper bound
+		1000000,				// Max iterations
+		1000.0,					// Initial temperature
+		0.999999				// Cooling rate
 	);
+
+
 	// Display results 
 	std::cout << "\nOptimal Simulated Annealing Booster Configuration: { ";
 	for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) {
@@ -239,7 +388,26 @@ int main() {
 	std::cout << "  Optimal Error: " << best_error_SA << "\n";
 	error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
-	
 
+	/* Perform Simulated Annealing optimization */
+	double best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
+		arrow_objective_function,
+		arrow_booster_amounts,   // Vector size
+		0,                       // Lower bound
+		12,                      // Upper bound
+		1000000,                 // Max iterations
+		1000.0,                  // Initial temperature
+		0.999999                 // Cooling rate
+	);
+
+	// Display results
+	std::cout << "\nOptimal Arrow Simulated Annealing Booster Configuration: { ";
+	for (size_t i = 0; i < arrow_booster_amounts.size(); ++i) {
+		std::cout << arrow_booster_amounts[i] << (i < arrow_booster_amounts.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "  Optimal Arrow Error: " << best_error_SA_arrow << "\n";
+	error = arrow::debug_objective(booster_toAP_x_exposures, arrow_booster_amounts, power_A_x1i_L, arrow_x17_map, target_x_L);
+	std::cout << "  Error: " << error << std::endl;
 	return 0;
 }
