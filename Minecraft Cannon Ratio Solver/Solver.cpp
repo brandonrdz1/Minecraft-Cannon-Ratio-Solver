@@ -98,7 +98,7 @@ namespace hammer {
 			power_H_x1_L += booster_amounts[i] * booster_toHP_x_exposures[i];
 		}
 		// Check if the Hammer's power is within explosion range
-		if (power_H_x1_L > -1 || power_H_x1_L < -7.5) { // TODO: Play with bounds
+		if (power_H_x1_L > -0.5 || power_H_x1_L < -7.5) { // TODO: Play with bounds
 			return 10000000.0; // should be infinity
 		}
 		// Find the final position of the Hammer
@@ -126,7 +126,7 @@ namespace hammer {
 			power_H_x1_L += booster_amounts[i] * booster_toHP_x_exposures[i];
 		}
 		// Check if the Hammer's power is within explosion range
-		if (power_H_x1_L > -1 || power_H_x1_L < -7.5) { // TODO: Play with bounds
+		if (power_H_x1_L > -0.5 || power_H_x1_L < -7.5) { // TODO: Play with bounds
 			// return invalid
 			// std::cout << "  Hammer's power is out of range/ahead of it" << std::endl; // Penalty funciton
 			return 10000000.0; // should be infinity
@@ -266,8 +266,8 @@ namespace arrow {
 		// Linear interpolation
 		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
 		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
-		std::cout << "  Hammer at 17gt x position (local): " << arrow_x17_L << std::endl;
-		std::cout << "  Hammer at 17gt x position (global): " << arrow_x17_L + -86214.5 << std::endl;
+		std::cout << "  Arrow at 17gt x position (local): " << arrow_x17_L << std::endl;
+		std::cout << "  Arrow at 17gt x position (global): " << arrow_x17_L + -86214.5 << std::endl;
 
 		// Compute the error
 		double error = std::abs(arrow_x17_L - target_x_L);
@@ -315,25 +315,25 @@ int main() {
 		-86234.53621773126, -86234.8832512168, -86235.2447882072,
 		-86235.62025871217, -86236.00902470213, -86236.41038066245
 	};
-	// State before/after afected by ratio and constant booster and amount of hammer's power amount
+	// State before/after afected by ratio and constant booster and amount of arrow's power amount
 	double power_A_x0_G = -86228.49000000954;	// -86228.49000000954 278.06125000119226 87930.5
 	double power_A_u0_G = 0.0;					// 0.0 13.581624504779418 -2.4523938435550006E-15
 	double power_A_x1i_G = -86230.15683194347;	// -86230.15683194347 298.0187499494105 87930.5
 	double power_A_u1i_G = -1.6334952952582336;	// -1.6334952952582336 19.55834994925387 -5.9841021027295936E-15
 	unsigned int power_A_amount = 36;			// minimum power
 	// Computed Quantities (local)
-	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the hammer
-	double power_A_x1i_L = power_A_x1i_G - center_x;	// Local Starting location of the hammer
-	double booster_toAP_x_exposures[12];				// The effect of the hammer's power's boosters to the hammer's power
+	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the arrow
+	double power_A_x1i_L = power_A_x1i_G - center_x;	// Local Starting location of the arrow
+	double booster_toAP_x_exposures[12];				// The effect of the arrow's power's boosters to the arrow's power
 	arrow::compute_booster_to_power_x_exposure(power_A_x0_G, arrow_booster_x_values_G, booster_toAP_x_exposures);
-	std::cout << "starting loc of arrow power w/out booster " << power_A_x1i_L << std::endl;
+	std::cout << "Starting loc of arrow power w/out booster " << power_A_x1i_L << std::endl;
 	double arrow_x17_map[141]; // based on 36 tnt
 	double arrow_u17_map[141];
 	arrow::compute_arrow_x17gt_L_map(arrow_x17_map, arrow_u17_map, power_A_amount);
 
 
 	/************* Optimization problem *************/
-	double target_x_L = 160.0; // we want to find Hammer that is as close to 100.0 blocks away.
+	double target_x_L = 490.0; // we want to find hammer/arrow that is as close to x blocks away.
 	double error;
 
 	// Define the hammer objective function lambda
@@ -361,7 +361,7 @@ int main() {
 			arrow_x17_map,
 			target_x_L
 		);
-		};
+	};
 
 	/* Initialize booster amounts */
 	std::vector<unsigned short> hammer_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
@@ -377,17 +377,17 @@ int main() {
 		1000.0,					// Initial temperature
 		0.999999				// Cooling rate
 	);
-
-
 	// Display results 
 	std::cout << "\nOptimal Simulated Annealing Booster Configuration: { ";
-	for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) {
-		std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " ");
-	}
+	for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) { std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " "); }
 	std::cout << "}\n";
 	std::cout << "  Optimal Error: " << best_error_SA << "\n";
+	std::cout << "Debug Hammer: " << std::endl;
 	error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
 	std::cout << "  Error: " << error << std::endl;
+
+
+	//////////////////////////////////////////////
 
 	/* Perform Simulated Annealing optimization */
 	double best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
