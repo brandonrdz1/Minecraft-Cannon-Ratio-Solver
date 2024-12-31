@@ -1,8 +1,10 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <sstream>
 
 #include "optimization.h"
+
 namespace hammer {
 	double explosion_height = 0.061250001192092896;
 	double gravity = -0.04;
@@ -275,139 +277,181 @@ namespace arrow {
 	}
 }
 
+class Tnt {
+public:
+	double x = 0.0, y = 0.0, z = 0.0;
+	double u = 0.0, v = 0.0, w = 0.0;
+	unsigned int amount = 1;
+	
+	static const double explosion_height, gravity, drag;
+
+	Tnt(const std::string& attributes, unsigned int explosivePower = 1.0) : amount(explosivePower) {
+		std::istringstream stream(attributes);
+		stream >> x >> y >> z >> u >> v >> w;
+	};
+
+	void explosion(Tnt source, double exposure = 1.0) {
+		double dx = x - source.x;
+		double dy = y - (source.y + explosion_height);
+		double dz = z - source.z;
+		double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		double f = (1.0 - distance / 8.0) * 1.0 / distance * source.amount * exposure;
+		
+		u += f * dx ;
+		v += f * dy ;
+		w += f * dz ;
+	}
+
+	void freefall(int ticks) {
+		// print(" 0 ");
+		for (int i = 0; i < ticks; i++) {
+			v += Tnt::gravity;
+
+			x += u;
+			y += v;
+			z += w;
+			// print(" " + std::to_string(i + 1) + " ");
+			u *= Tnt::drag;
+			v *= Tnt::drag;
+			w *= Tnt::drag;
+		}
+	}
+
+	std::vector<double> getVel() {
+		return { u, v, w };
+	}
+
+	void print(std::string str = "") {
+		std::cout << str << "x: " << x << "\ty: " << y << "\tz: " << z << "\t| u: " << u << "\tv: " << v << "\tw: " << w << std::endl;
+	}
+};
+// Define static const members outside the class
+const double Tnt::explosion_height = 0.061250001192092896;
+const double Tnt::gravity = -0.04;
+const double Tnt::drag = 0.98;
+
+bool permutate(int* current, const int* start, const int* end, int size) {
+	int index = size - 1;
+
+	// Increment the current array to the next permutation
+	while (index >= 0) {
+		if (current[index] < end[index]) {
+			current[index]++;
+			return true; // Next permutation exists
+		}
+		else {
+			current[index] = start[index]; // Reset this position and carry over
+			index--;
+		}
+	}
+
+	// If we've carried out of bounds, there are no more permutations
+	return false;
+}
+
+// Function to check if two arrays are equal
+bool isEqual(const int* arr1, const int* arr2, int size) {
+	for (int i = 0; i < size; ++i) {
+		if (arr1[i] != arr2[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
 int main() {
 	/************* Output Formatting *************/
 	std::cout << std::setprecision(17);
 
-	/* In-game Conditions (Global) */
-	//// Positions/Velocities
-	double center_x = -86214.5;
-	unsigned short int reference_booster_amounts[12] = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }; // Reference values, Limited to Between 0-12
+	Tnt arrowPower0("-132125.49000000954 250.0199999809265 1008.5");
+	const int size = 8;
+	Tnt* aPBoosters[size];
 
-	/** Hammer Input **/
-	double hammer_booster_x_values_G[12] = { 
-		-86234.78586161736, -86235.03129429705, -86235.29123018472,
-		-86235.56509943453, -86235.85226417152, -86236.15201904518,
-		-86233.91205295271, -86234.25911295973, -86234.62067852802,
-		-86234.99617983929, -86235.38497905637, -86235.78637088025
-	};
-	// State before/after afected by ratio and constant booster and amount of hammer's power amount
-	double power_H_x0_G = -86228.49000000954;	// -86228.49000000954 278.06125000119226 87930.5
-	double power_H_u0_G = 0.0;					// 0.0 13.581624504779418 -2.4523938435550006E-15
-	double power_H_x1i_G = -86232.08075066289;	// -86232.08075066289 316.3339737459176 87930.5
-	double power_H_u1i_G = -3.5189356402947953;	// -3.5189356402947953 37.507269269830815 -1.158739770801276E-14
-	unsigned int power_H_amount = 36;			// minimum power
-	// Computed Quantities (local)
-	double power_H_x0_L = power_H_x0_G - center_x;		// Local Starting location of the hammer
-	double power_H_x1i_L = power_H_x1i_G - center_x;	// Local Starting location of the hammer
-	double booster_toHP_x_exposures[12];				// The effect of the hammer's power's boosters to the hammer's power
-	hammer::compute_booster_to_power_x_exposure(power_H_x0_G, hammer_booster_x_values_G, booster_toHP_x_exposures);
-	double booster_x_Hrange_virtual_exposure[12];	// The inderect affect of the hammer's power's boosters onto the final position of the hammer
-	hammer::compute_booster_x_Hrange_virtual_exposure(reference_booster_amounts, booster_toHP_x_exposures, power_H_x1i_L, power_H_amount, booster_x_Hrange_virtual_exposure);
-	double hammer_x_ref_final_L = hammer::position_after_17gt_L(booster_toHP_x_exposures, reference_booster_amounts, power_H_x1i_L, power_H_amount); // Uses the reference values of {6 ... 6}
-	// Finding the hammer's virtual starting position
-	double hammer_x0virtual_L = hammer::compute_virtual_initial_position(booster_x_Hrange_virtual_exposure, hammer_x_ref_final_L);
+	aPBoosters[0] = new Tnt("-132125.50999999046 250.0 1000.5099999904633",3 * 2);
+	aPBoosters[1] = new Tnt("-132125.50999999046 249.0 1002.4275000095367",2 * 2);
+	aPBoosters[2] = new Tnt("-132125.50999999046 248.0 1004.4275000095367",10 * 2);
+	aPBoosters[3] = new Tnt("-132125.50999999046 247.0 1006.4275000095367",5 * 2);
+	aPBoosters[4] = new Tnt("-132125.49000000954 250.0 1000.5099999904633",1 * 2);
+	aPBoosters[5] = new Tnt("-132128.50999999046 249.0 1002.4900000095367",9 * 2);
+	aPBoosters[6] = new Tnt("-132128.50999999046 248.0 1004.4900000095367",3 * 2);
+	aPBoosters[7] = new Tnt("-132128.50999999046 247.0 1006.4900000095367",9 * 2);
 
-	/** Arrow Input **/
-	double arrow_booster_x_values_G[12] = {
-		-86234.66023655233, -86234.92907985931, -86235.21242460351,
-		-86235.50970078005, -86235.82027033666, -86236.14342772469,
-		-86234.53621773126, -86234.8832512168, -86235.2447882072,
-		-86235.62025871217, -86236.00902470213, -86236.41038066245
-	};
-	// State before/after afected by ratio and constant booster and amount of arrow's power amount
-	double power_A_x0_G = -86228.49000000954;	// -86228.49000000954 278.06125000119226 87930.5
-	double power_A_u0_G = 0.0;					// 0.0 13.581624504779418 -2.4523938435550006E-15
-	double power_A_x1i_G = -86230.15683194347;	// -86230.15683194347 298.0187499494105 87930.5
-	double power_A_u1i_G = -1.6334952952582336;	// -1.6334952952582336 19.55834994925387 -5.9841021027295936E-15
-	unsigned int power_A_amount = 36;			// minimum power
-	// Computed Quantities (local)
-	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the arrow
-	double power_A_x1i_L = power_A_x1i_G - center_x;	// Local Starting location of the arrow
-	double booster_toAP_x_exposures[12];				// The effect of the arrow's power's boosters to the arrow's power
-	arrow::compute_booster_to_power_x_exposure(power_A_x0_G, arrow_booster_x_values_G, booster_toAP_x_exposures);
-	std::cout << "Starting loc of arrow power w/out booster " << power_A_x1i_L << std::endl;
-	double arrow_x17_map[141]; // based on 36 tnt
-	double arrow_u17_map[141];
-	arrow::compute_arrow_x17gt_L_map(arrow_x17_map, arrow_u17_map, power_A_amount);
-
-
-	/************* Optimization problem *************/
-	double target_x_L = 490.0; // we want to find hammer/arrow that is as close to x blocks away.
-	double error;
-
-	// Define the hammer objective function lambda
-	auto hammer_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
-		unsigned short booster_amounts_array[12];
-		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
-		return hammer::compute_objective(
-			booster_toHP_x_exposures,
-			booster_amounts_array,
-			power_H_x1i_L,
-			booster_x_Hrange_virtual_exposure,
-			hammer_x0virtual_L,
-			target_x_L
-		);
-	};
-	
-	// Define the arrow objective function lambda
-	auto arrow_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
-		unsigned short booster_amounts_array[12];
-		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
-		return arrow::compute_objective(
-			booster_toAP_x_exposures,
-			booster_amounts_array,
-			power_A_x1i_L,
-			arrow_x17_map,
-			target_x_L
-		);
-	};
-
-	/* Initialize booster amounts */
-	std::vector<unsigned short> hammer_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
-	std::vector<unsigned short> arrow_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
-
-	/* Perform Simulated Annealing optimization */
-	double best_error_SA = optimization::optimize_boosters_simulated_annealing(
-		hammer_objective_function,
-		hammer_booster_amounts,	// Just to get the size of the vector
-		0,						// Lower bound
-		12,						// Upper bound
-		1000000,				// Max iterations
-		1000.0,					// Initial temperature
-		0.999999				// Cooling rate
-	);
-	// Display results 
-	std::cout << "\nOptimal Simulated Annealing Booster Configuration: { ";
-	for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) { std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " "); }
-	std::cout << "}\n";
-	std::cout << "  Optimal Error: " << best_error_SA << "\n";
-	std::cout << "Debug Hammer: " << std::endl;
-	error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
-	std::cout << "  Error: " << error << std::endl;
-
-
-	//////////////////////////////////////////////
-
-	/* Perform Simulated Annealing optimization */
-	double best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
-		arrow_objective_function,
-		arrow_booster_amounts,   // Vector size
-		0,                       // Lower bound
-		12,                      // Upper bound
-		1000000,                 // Max iterations
-		1000.0,                  // Initial temperature
-		0.999999                 // Cooling rate
-	);
-
-	// Display results
-	std::cout << "\nOptimal Arrow Simulated Annealing Booster Configuration: { ";
-	for (size_t i = 0; i < arrow_booster_amounts.size(); ++i) {
-		std::cout << arrow_booster_amounts[i] << (i < arrow_booster_amounts.size() - 1 ? ", " : " ");
+	for (int i = 0; i < size; i++) {
+		arrowPower0.explosion(*aPBoosters[i]);
+		delete aPBoosters[i]; // clear old boosters
 	}
-	std::cout << "}\n";
-	std::cout << "  Optimal Arrow Error: " << best_error_SA_arrow << "\n";
-	error = arrow::debug_objective(booster_toAP_x_exposures, arrow_booster_amounts, power_A_x1i_L, arrow_x17_map, target_x_L);
-	std::cout << "  Error: " << error << std::endl;
+
+	aPBoosters[0] = new Tnt("-132145.49000000954 250.0 989.6775000095367");
+	aPBoosters[1] = new Tnt("-132145.49000000954 250.0 991.2400000095367");
+	aPBoosters[2] = new Tnt("-132145.49000000954 250.0 993.4900000095367");
+	aPBoosters[3] = new Tnt("-132145.49000000954 250.0 995.4900000095367");
+	aPBoosters[4] = new Tnt("-132147.50999999046 250.0 997.5099999904633");
+	aPBoosters[5] = new Tnt("-132149.50999999046 250.0 997.5099999904633");
+	aPBoosters[6] = new Tnt("-132151.75999999046 250.0 997.5099999904633");
+	aPBoosters[7] = new Tnt("-132153.32249999046 250.0 997.5099999904633");
+
+	Tnt preciseBooster0("-132145.50999999046 250.0 997.4900000095367");
+	Tnt preciseBooster1("69420.0 250.0 1008.5"); 
+	double boosterInfluence[size];
+	std::cout << "Precise Exposure: " << std::endl;
+	for (int i = 0; i < size; i++) {
+		Tnt temp = preciseBooster0;
+		temp.explosion(*aPBoosters[i], 0.9f); // snow slow-down
+		boosterInfluence[i] = temp.u;
+		std::cout << "  u[" << i << "]: " << boosterInfluence[i] << std::endl;
+		delete aPBoosters[i];
+	}
+
+	int boosterAmountStart[size] = { 0, 0, 0, 0, 0, 0, 0, 0};
+	int boosterAmount[size];
+	int boosterAmountFinal[size] = { 34, 23, 23, 23, 23, 23, 23, 34};
+	int targetArr[size] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+	// Initialize boosterAmount to the start values
+	std::copy(boosterAmountStart, boosterAmountStart + size, boosterAmount);
+	double diff;
+	double closestValue = std::numeric_limits<double>::max();
+	double startX = preciseBooster0.x;
+	double target = 278 + Tnt::explosion_height;
+	std::vector<int> bestBoosterAmount(size, 0);
+	do {
+		double finalX = startX;
+		for (int i = 0; i < size; ++i) {
+			finalX += boosterAmount[i] * boosterInfluence[i];
+		}
+
+		if (finalX > arrowPower0.x) { // check if its too far forward; continue the script and skip calculations
+
+			permutate(boosterAmount, boosterAmountStart, boosterAmountFinal, size);
+			if (!isEqual(boosterAmount, boosterAmountFinal, size)) {
+				continue;
+			}
+		}
+		
+		preciseBooster1.x = finalX;
+		Tnt arrowPower1 = arrowPower0;
+		arrowPower1.explosion(preciseBooster1);
+		arrowPower1.freefall(2);
+		diff = std::abs(target - arrowPower1.y);
+		if ((diff <= closestValue && arrowPower1.y >= target)){
+			closestValue = diff;
+			bestBoosterAmount = std::vector<int>(boosterAmount, boosterAmount + size);
+
+			std::cout << "Current Combination: ";
+			for (int i = 0; i < 8; ++i) {
+				std::cout << boosterAmount[i] << " ";
+			}
+			std::cout << std::endl;
+			std::cout << " x: " << finalX << std::endl;
+			std::cout << " y: " << arrowPower1.y << std::endl;
+			std::cout << " Error: " << diff << std::endl;
+			
+		}
+
+		// Generate the next permutation
+		permutate(boosterAmount, boosterAmountStart, boosterAmountFinal, size);
+	} while (!isEqual(boosterAmount, boosterAmountFinal, size));
+
+	std::cout << "End" << std::endl;
+	while (true) {};
 	return 0;
 }
