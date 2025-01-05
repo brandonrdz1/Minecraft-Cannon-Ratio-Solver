@@ -9,6 +9,8 @@
 #include <functional>
 #include <numeric>
 
+#include <omp.h> // For parallelization (OpenMP)
+
 class optimization {
 public:
     /**
@@ -100,32 +102,59 @@ public:
         double best_error = std::numeric_limits<double>::infinity();
         std::vector<unsigned short> best_configuration = booster_amounts;
 
-        // Iterate over all combinations
-        std::vector<unsigned short> current_configuration(num_boosters, lower_bound);
-        while (true) {
-            // Evaluate the current configuration
-            double current_error = objective_function(current_configuration);
-            if (current_error < best_error) {
-                best_error = current_error;
-                best_configuration = current_configuration;
+        // Precompute the total number of combinations
+        size_t total_combinations = std::pow(upper_bound - lower_bound + 1, num_boosters);
+        std::cout << "total_combinations: " << static_cast<long long int>(total_combinations) << std::endl;
+
+        // Parallel brute force using OpenMP
+    #pragma omp parallel
+        {
+            std::vector<unsigned short> current_configuration(num_boosters, lower_bound);
+            double local_best_error = std::numeric_limits<double>::infinity();
+            std::vector<unsigned short> local_best_configuration = booster_amounts;
+
+    #pragma omp for schedule(dynamic)
+            for (long long int combination = 0; combination < static_cast<long long int>(total_combinations); ++combination) {
+
+                // Decode combination into current configuration
+                size_t temp = combination;
+                for (size_t i = 0; i < num_boosters; ++i) {
+                    current_configuration[i] = lower_bound + (temp % (upper_bound - lower_bound + 1));
+                    temp /= (upper_bound - lower_bound + 1);
+                }
+
+                // Evaluate current configuration
+                double current_error = objective_function(current_configuration);
+                if (current_error < local_best_error) {
+                    local_best_error = current_error;
+                    local_best_configuration = current_configuration;
+
+                    // Log the new local configuration
+    #pragma omp critical
+                    {
+                        std::cout << "New local Configuration: ";
+                        for (size_t i = 0; i < local_best_configuration.size(); ++i) {
+                            std::cout << local_best_configuration[i] << (i < local_best_configuration.size() - 1 ? ", " : " ");
+                        }
+                        std::cout << " | Error: " << local_best_error << std::endl;
+                    }
+                }
             }
 
-            // Generate the next configuration
-            size_t i = 0;
-            while (i < num_boosters) {
-                if (current_configuration[i] < upper_bound) {
-                    current_configuration[i]++;
-                    break;
-                }
-                else {
-                    current_configuration[i] = lower_bound;
-                    i++;
-                }
-            }
+            // Update global best results and log in a critical section
+    #pragma omp critical
+            {
+                if (local_best_error < best_error) {
+                    best_error = local_best_error;
+                    best_configuration = local_best_configuration;
 
-            // If we've cycled through all combinations, break
-            if (i == num_boosters) {
-                break;
+                    // Log the new best configuration
+                    std::cout << "New Best Configuration: ";
+                    for (size_t i = 0; i < best_configuration.size(); ++i) {
+                        std::cout << best_configuration[i] << (i < best_configuration.size() - 1 ? ", " : " ");
+                    }
+                    std::cout << " | Error: " << best_error << std::endl;
+                }
             }
         }
 
@@ -134,6 +163,7 @@ public:
 
         return best_error;
     }
+
 
     /**
      * Particle Swarm Optimization for Optimizing Booster Configurations

@@ -1,8 +1,13 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <sstream>
 
 #include "optimization.h"
+
+#define center -132111.5 // Where everything starts from
+#define center_x -132111.5 // Where everything starts from
+
 namespace hammer {
 	double explosion_height = 0.061250001192092896;
 	double gravity = -0.04;
@@ -35,7 +40,7 @@ namespace hammer {
 		// Freefall of the hammer for 17 gt
 		double hammer_u0 = f * power_amount * distance;	// Initial velocity of the Hammer
 		double hammer_x17_L = hammer_x0_L;
-		for (int i = 0; i < 17; i++) {
+		for (int i = 0; i < 17; i++) { // 17
 			hammer_x17_L += hammer_u0;
 			hammer_u0 *= 0.98;
 		}
@@ -133,14 +138,14 @@ namespace hammer {
 		}
 		// else
 		std::cout << "  Hammer's Power x position (local): " << power_H_x1_L << std::endl;
-		std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + -86214.5 << std::endl;
+		std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + center << std::endl;
 		// Find the final position of the Hammer
 		double hammer_x17_L = hammer_x0virtual_L;
 		for (int i = 0; i < 12; i++) {
 			hammer_x17_L += booster_amounts[i] * booster_x_Hrange_virtual_exposure[i];
 		}
 		std::cout << "  Hammer at 17gt x position (local): " << hammer_x17_L << std::endl;
-		std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + -86214.5 << std::endl;
+		std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + center << std::endl;
 		// Compute the Error
 		double error = abs(hammer_x17_L - target_x_L);
 		return error;
@@ -252,7 +257,7 @@ namespace arrow {
 
 		// Arrow's Power initial position
 		std::cout << "  Arrow's Power x position (local): " << power_A_x1_L << std::endl;
-		std::cout << "  Arrow's Power x position (global): " << power_A_x1_L + -86214.5 << std::endl;
+		std::cout << "  Arrow's Power x position (global): " << power_A_x1_L + center << std::endl;
 
 		// Map Lookup
 		// Find the final position of the Hammer
@@ -267,7 +272,7 @@ namespace arrow {
 		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
 		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
 		std::cout << "  Arrow at 17gt x position (local): " << arrow_x17_L << std::endl;
-		std::cout << "  Arrow at 17gt x position (global): " << arrow_x17_L + -86214.5 << std::endl;
+		std::cout << "  Arrow at 17gt x position (global): " << arrow_x17_L + center << std::endl;
 
 		// Compute the error
 		double error = std::abs(arrow_x17_L - target_x_L);
@@ -275,27 +280,110 @@ namespace arrow {
 	}
 }
 
+class Tnt {
+public:
+	double x = 0.0, y = 0.0, z = 0.0;
+	double u = 0.0, v = 0.0, w = 0.0;
+	unsigned int amount = 1;
+
+	static const double explosion_height, gravity, drag;
+
+	Tnt(const std::string& attributes, unsigned int explosivePower = 1.0) : amount(explosivePower) {
+		std::istringstream stream(attributes);
+		stream >> x >> y >> z >> u >> v >> w;
+	};
+
+	void explosion(Tnt source, double exposure = 1.0) {
+		double dx = x - source.x;
+		double dy = y - (source.y + explosion_height);
+		double dz = z - source.z;
+		double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		double f = (1.0 - distance / 8.0) * 1.0 / distance * source.amount * exposure;
+
+		u += f * dx;
+		v += f * dy;
+		w += f * dz;
+	}
+
+	void swing(Tnt source) {
+		Tnt origin(source);
+		std::vector<std::vector<double>> locations;
+		double dx, dy, dz, distance;
+		float f;
+		for (int i = 0; i < source.amount; i++) {
+			Tnt next = origin;
+			next.freefall(1);
+			if (next.y > 254.0199999809265) { next.y = 254.0199999809265; }
+			std::vector<double> loc(3);
+			loc[0] = next.x;
+			loc[1] = next.y;
+			loc[2] = next.z;
+			locations.push_back(loc);
+			dx = origin.x - locations[i][0], dy = origin.y - locations[i][1], dz = origin.z - locations[i][2];
+			distance = sqrt(dx * dx + dy * dy + dz * dz);
+			if (distance > 8.0 || distance == 0.0) {
+				continue;
+			}
+			f = (1.0 - distance / 8.0) * 1.0 / distance;
+			origin.u += dx * f;
+			origin.v += dy * f;
+			origin.w += dz * f;
+		}
+
+		for (int i = 0; i < locations.size(); i++) {
+			std::cout << "x: " << locations[i][0] << " y: " << locations[i][1] << " z: " << locations[i][2] << std::endl;
+		}
+	}
+
+	void freefall(int ticks) {
+		// print(" 0 ");
+		for (int i = 0; i < ticks; i++) {
+			v += Tnt::gravity;
+
+			x += u;
+			y += v;
+			z += w;
+			// print(" " + std::to_string(i + 1) + " ");
+			u *= Tnt::drag;
+			v *= Tnt::drag;
+			w *= Tnt::drag;
+		}
+	}
+
+	std::vector<double> getVel() {
+		return { u, v, w };
+	}
+
+	void print(std::string str = "") {
+		std::cout << str << "x: " << x << "\ty: " << y << "\tz: " << z << "\t| u: " << u << "\tv: " << v << "\tw: " << w << std::endl;
+	}
+};
+// Define static const members outside the class
+const double Tnt::explosion_height = 0.061250001192092896;
+const double Tnt::gravity = -0.04;
+const double Tnt::drag = 0.98;
+
 int main() {
 	/************* Output Formatting *************/
 	std::cout << std::setprecision(17);
 
 	/* In-game Conditions (Global) */
 	//// Positions/Velocities
-	double center_x = -86214.5;
-	unsigned short int reference_booster_amounts[12] = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 }; // Reference values, Limited to Between 0-12
+	
+	unsigned short int reference_booster_amounts[12] = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}; // Reference values, Limited to Between 0-12
 
 	/** Hammer Input **/
 	double hammer_booster_x_values_G[12] = { 
-		-86234.78586161736, -86235.03129429705, -86235.29123018472,
-		-86235.56509943453, -86235.85226417152, -86236.15201904518,
-		-86233.91205295271, -86234.25911295973, -86234.62067852802,
-		-86234.99617983929, -86235.38497905637, -86235.78637088025
+		-132131.78586161736, -132132.03129429705, -132132.29123018472,
+		-132132.56509943452, -132132.85226417152, -132133.1520190452,
+		-132130.91192610186, -132131.2589431057, -132131.62046530127,
+		-132131.99592300472, -132132.3846785224, -132132.78602670677
 	};
 	// State before/after afected by ratio and constant booster and amount of hammer's power amount
-	double power_H_x0_G = -86228.49000000954;	// -86228.49000000954 278.06125000119226 87930.5
-	double power_H_u0_G = 0.0;					// 0.0 13.581624504779418 -2.4523938435550006E-15
-	double power_H_x1i_G = -86232.08075066289;	// -86232.08075066289 316.3339737459176 87930.5
-	double power_H_u1i_G = -3.5189356402947953;	// -3.5189356402947953 37.507269269830815 -1.158739770801276E-14
+	double power_H_x0_G = -132125.49000000954;	// -132125.49000000954 278.06125000119226 1008.5
+	double power_H_u0_G = 0.0;					// 0.0 13.581624504779414 9.596323735650002E-16
+	double power_H_x1i_G = -132129.0807506629;	// -132129.0807506629 316.33397374591755 1008.5
+	double power_H_u1i_G = -3.5189356402947953;	// -3.5189356402947953 37.5072692698308 -7.235323451482145E-15
 	unsigned int power_H_amount = 36;			// minimum power
 	// Computed Quantities (local)
 	double power_H_x0_L = power_H_x0_G - center_x;		// Local Starting location of the hammer
@@ -310,16 +398,16 @@ int main() {
 
 	/** Arrow Input **/
 	double arrow_booster_x_values_G[12] = {
-		-86234.66023655233, -86234.92907985931, -86235.21242460351,
-		-86235.50970078005, -86235.82027033666, -86236.14342772469,
-		-86234.53621773126, -86234.8832512168, -86235.2447882072,
-		-86235.62025871217, -86236.00902470213, -86236.41038066245
+		-132131.66023655233, -132131.9290798593, -132132.21242460352,
+		-132132.50970078004, -132132.82027033667, -132133.1434277247,
+		-132131.53607811127, -132131.8830685851, -132132.24456219366,
+		-132132.61998908114, -132133.00871136136, -132133.41002367114
 	};
 	// State before/after afected by ratio and constant booster and amount of arrow's power amount
-	double power_A_x0_G = -86228.49000000954;	// -86228.49000000954 278.06125000119226 87930.5
-	double power_A_u0_G = 0.0;					// 0.0 13.581624504779418 -2.4523938435550006E-15
-	double power_A_x1i_G = -86230.15683194347;	// -86230.15683194347 298.0187499494105 87930.5
-	double power_A_u1i_G = -1.6334952952582336;	// -1.6334952952582336 19.55834994925387 -5.9841021027295936E-15
+	double power_A_x0_G = -132125.49000000954;	// -132125.49000000954 278.06125000119226 1008.5
+	double power_A_u0_G = 0.0;					// 0.0 13.581624504779414 9.596323735650002E-16
+	double power_A_x1i_G = -132127.1568319435;	// -132127.1568319435 298.0187499494105 1008.5
+	double power_A_u1i_G = -1.6334952952582336;	// -1.6334952952582336 19.558349949253866 -2.5024426975051027E-15
 	unsigned int power_A_amount = 36;			// minimum power
 	// Computed Quantities (local)
 	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the arrow
@@ -332,11 +420,12 @@ int main() {
 	arrow::compute_arrow_x17gt_L_map(arrow_x17_map, arrow_u17_map, power_A_amount);
 
 
+	//////////////////////////////////////////////
 	/************* Optimization problem *************/
-	double target_x_L = 490.0; // we want to find hammer/arrow that is as close to x blocks away.
+	double target_x_L = 200.0; // we want to find hammer/arrow that is as close to x blocks away.
 	double error;
 
-	// Define the hammer objective function lambda
+	// Define the hammer and arrow objective function lambdas
 	auto hammer_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
 		unsigned short booster_amounts_array[12];
 		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
@@ -349,8 +438,6 @@ int main() {
 			target_x_L
 		);
 	};
-	
-	// Define the arrow objective function lambda
 	auto arrow_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
 		unsigned short booster_amounts_array[12];
 		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
@@ -367,47 +454,103 @@ int main() {
 	std::vector<unsigned short> hammer_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
 	std::vector<unsigned short> arrow_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
 
-	/* Perform Simulated Annealing optimization */
-	double best_error_SA = optimization::optimize_boosters_simulated_annealing(
-		hammer_objective_function,
-		hammer_booster_amounts,	// Just to get the size of the vector
-		0,						// Lower bound
-		12,						// Upper bound
-		1000000,				// Max iterations
-		1000.0,					// Initial temperature
-		0.999999				// Cooling rate
-	);
-	// Display results 
-	std::cout << "\nOptimal Simulated Annealing Booster Configuration: { ";
-	for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) { std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " "); }
-	std::cout << "}\n";
-	std::cout << "  Optimal Error: " << best_error_SA << "\n";
-	std::cout << "Debug Hammer: " << std::endl;
-	error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
-	std::cout << "  Error: " << error << std::endl;
-
-
 	//////////////////////////////////////////////
+	const double error_threshold = 1e-5; // Desired error threshold
+	int max_retries = 100; // Maximum retries to prevent infinite loops
+	int retry_count = 0;
 
 	/* Perform Simulated Annealing optimization */
-	double best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
-		arrow_objective_function,
-		arrow_booster_amounts,   // Vector size
-		0,                       // Lower bound
-		12,                      // Upper bound
-		1000000,                 // Max iterations
-		1000.0,                  // Initial temperature
-		0.999999                 // Cooling rate
+	double best_error_SA = std::numeric_limits<double>::infinity();
+	while (best_error_SA > error_threshold && retry_count < max_retries) {
+		best_error_SA = optimization::optimize_boosters_simulated_annealing(
+			hammer_objective_function,
+			hammer_booster_amounts,
+			0,                        // Lower bound
+			12,                       // Upper bound
+			1000000,                  // Max iterations
+			100000.0,                 // Initial temperature
+			0.99999                   // Cooling rate
+		);
+		retry_count++;
+	}
+	if (best_error_SA <= error_threshold) {
+		std::cout << "\nOptimal Hammer Booster Configuration Found: { ";
+		for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) {
+			std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " ");
+		}
+		std::cout << "}\n";
+		std::cout << "  Optimal Hammer Error: " << best_error_SA << "\n";
+
+		std::cout << "Debug Hammer: " << std::endl;
+		error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
+		std::cout << "  Error: " << error << std::endl;
+	}
+	else {
+		std::cout << "Failed to find a configuration with error < " << error_threshold << " after " << retry_count << " retries.\n";
+	}
+
+	// Reset retry counter for the arrow optimization
+	retry_count = 0;
+	/* Perform Simulated Annealing optimization */
+	double best_error_SA_arrow = std::numeric_limits<double>::infinity();
+	while (best_error_SA_arrow > error_threshold && retry_count < max_retries) {
+		best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
+			arrow_objective_function,
+			arrow_booster_amounts,
+			0,                        // Lower bound
+			12,                       // Upper bound
+			1000000,                  // Max iterations
+			100000.0,                 // Initial temperature
+			0.99999                   // Cooling rate
+		);
+		retry_count++;
+	}
+	if (best_error_SA_arrow <= error_threshold) {
+		std::cout << "\nOptimal Arrow Booster Configuration Found: { ";
+		for (size_t i = 0; i < arrow_booster_amounts.size(); ++i) {
+			std::cout << arrow_booster_amounts[i] << (i < arrow_booster_amounts.size() - 1 ? ", " : " ");
+		}
+		std::cout << "}\n";
+		std::cout << "  Optimal Arrow Error: " << best_error_SA_arrow << "\n";
+
+		std::cout << "Debug Arrow: " << std::endl;
+		error = arrow::debug_objective(booster_toAP_x_exposures, arrow_booster_amounts, power_A_x1i_L, arrow_x17_map, target_x_L);
+		std::cout << "  Error: " << error << std::endl;
+	}
+	else {
+		std::cout << "Failed to find a configuration with error < " << error_threshold << " after " << retry_count << " retries.\n";
+	}
+	///////////////////////////////
+	// Brute Force Optimization for Hammer
+	std::vector<unsigned short> best_hammer_configuration = hammer_booster_amounts;
+	double best_hammer_error = optimization::optimize_boosters_brute_force(
+		hammer_objective_function,
+		best_hammer_configuration,
+		0,   // Lower bound
+		12   // Upper bound
 	);
 
-	// Display results
-	std::cout << "\nOptimal Arrow Simulated Annealing Booster Configuration: { ";
-	for (size_t i = 0; i < arrow_booster_amounts.size(); ++i) {
-		std::cout << arrow_booster_amounts[i] << (i < arrow_booster_amounts.size() - 1 ? ", " : " ");
+	std::cout << "\nBrute Force Hammer Booster Configuration Found: { ";
+	for (size_t i = 0; i < best_hammer_configuration.size(); ++i) {
+		std::cout << best_hammer_configuration[i] << (i < best_hammer_configuration.size() - 1 ? ", " : " ");
 	}
 	std::cout << "}\n";
-	std::cout << "  Optimal Arrow Error: " << best_error_SA_arrow << "\n";
-	error = arrow::debug_objective(booster_toAP_x_exposures, arrow_booster_amounts, power_A_x1i_L, arrow_x17_map, target_x_L);
-	std::cout << "  Error: " << error << std::endl;
+	std::cout << "  Optimal Hammer Error: " << best_hammer_error << "\n";
+
+	// Brute Force Optimization for Arrow
+	std::vector<unsigned short> best_arrow_configuration = arrow_booster_amounts;
+	double best_arrow_error = optimization::optimize_boosters_brute_force(
+		arrow_objective_function,
+		best_arrow_configuration,
+		0,   // Lower bound
+		12   // Upper bound
+	);
+
+	std::cout << "\nBrute Force Arrow Booster Configuration Found: { ";
+	for (size_t i = 0; i < best_arrow_configuration.size(); ++i) {
+		std::cout << best_arrow_configuration[i] << (i < best_arrow_configuration.size() - 1 ? ", " : " ");
+	}
+	std::cout << "}\n";
+	std::cout << "  Optimal Arrow Error: " << best_arrow_error << "\n";
 	return 0;
 }
