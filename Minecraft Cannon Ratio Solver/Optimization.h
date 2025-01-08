@@ -348,7 +348,7 @@ public:
             }
         }
 
-        // Return the best individual
+        // Return the best individual0
         auto best_idx = std::min_element(fitness.begin(), fitness.end()) - fitness.begin();
         booster_amounts = population[best_idx];
         return fitness[best_idx];
