@@ -10,8 +10,8 @@
 
 namespace hammer {
 	double explosion_height = 0.061250001192092896;
-	double gravity = -0.04;
-	double drag = 0.98;
+	double gravity = -0.0399999991059303;
+	double drag = 0.9800000190734863;
 
 	void compute_booster_to_power_x_exposure(double power_x0, double* booster_x_values_G, double* booster_to_power_x_exposures) {
 		std::cout << "Booster to Hammer's Power Exposure: " << std::endl;
@@ -420,6 +420,21 @@ double CalculateTargetError(double ypos) {
 	std::cout << "Best Velocity: " << bestVelocity
 		<< " with Error: " << targetError << std::endl;
 	std::cout << std::endl;
+
+	// Testing something
+	for (int i = -20; i < 20; i++) {
+		double otherPossibleVelocities = bestVelocity + (i * 1e-17);
+		Tnt testTnt(0, ypos, 0, 0, 0, 0); // Reset Tnt object for each test
+		testTnt.v = otherPossibleVelocities;
+		testTnt.freefall(7);
+		if (testTnt.y > 255.0) {
+			return bestVelocity;
+		}
+		double otherError = std::abs(testTnt.y - targetY);
+		std::cout << "Second Best Velocity: " << otherPossibleVelocities
+			<< " with Error: " << otherError << std::endl;
+	}
+	
 	return bestVelocity;
 }
 
@@ -439,27 +454,38 @@ bool generateNextPermutation(int currentArray[], const int startArray[], const i
 	return false;
 }
 
+double fastff(double vel) {
+	double start = 253.97999998182058;
+	for (int i = 0; i < 7; i++) {
+		vel += Tnt::gravity;
+		start += vel;
+		vel *= Tnt::drag;
+	}
+	return start;
+}
+
 int main() {
 	/************* Output Formatting *************/
 	std::cout << std::setprecision(17);
 
+	std::cout << "drag: " << Tnt::drag << std::endl;
+	std::cout << "gravity: " << Tnt::gravity << std::endl;
 	/* In-game Conditions (Global) */
 	//// Positions/Velocities
-	Tnt swingTnt("-199971.5000002721 254.0199999809265 -333113.50999999046 0.9701997615808802 0.0 0.0", 75);
-	Tnt swingTntRev("-199971.5 250.0 -333113.5 0.0 0.0 0.0", 1);
+	Tnt swingTnt("-199974.5000002721 254.0199999809265 -333625.50999999046 0.9701997615808802 0.0 0.0", 75);
+	Tnt swingTntRev("-199974.49000000954 248.0 -333625.49000000954", 1);
 	swingTnt.explosion(swingTntRev); // keeps it up
-	Tnt powerTnt0("-199971.49755261914 254.0199999809265 -333108.5534764172 -0.00740155756734615 0.0 0.9177931383509221");
-	Tnt powerTnt0Rev0("-199964.5 254.0 -333111.5", 1);
-	Tnt powerTnt0Rev1("-199978.5 254.0 -333111.5", 1);
-	powerTnt0.explosion(powerTnt0Rev0, (float)1.0/3.0);
-	powerTnt0.explosion(powerTnt0Rev1, (float)1.0/3.0);
+	Tnt powerTnt0("-199974.49755261914 254.0199999809265 -333620.5534764172 -0.00740155756734615 0.0 0.9177931383509221");
+	Tnt powerTnt0Rev0("-199982.49000000954 254.0 -333620.24000000954", 1);
+	powerTnt0.explosion(powerTnt0Rev0, ((float)1.0/3.0) );
 	powerTnt0.print("Before Swing: ");
 
 	int count = 0;
+	std::vector<int> powerAdd;
 	int add = -1;
 	std::vector<double> xlocations;
 	std::vector<double> ylocations;
-	for (int i = 75; i <= 165; i++) {
+	for (int i = 80; i <= 1000; i++) { // 75-165
 		add++;
 		Tnt powerTnt1 = powerTnt0; // reset
 		swingTnt.amount = i;
@@ -467,6 +493,7 @@ int main() {
 		//powerTnt1.print("After Swing NoFF with [" + std::to_string(i) + "] power: ");
 		
 		powerTnt1.freefall(1);
+		powerTnt1.y = 253.98000012584023;
 		double decimal = powerTnt1.x - std::floor(powerTnt1.x);
 		
 		if (decimal < 0.49f || decimal > 0.51f) {
@@ -476,8 +503,8 @@ int main() {
 		count++;
 		// guider alignment
 		// powerTnt1.y = 254.0; TODO: check if this is necessary
-		powerTnt1.z = -333100.49000000954; // guider coordinate
-
+		powerTnt1.z = -333592.49000000954; // guider coordinate
+		powerAdd.push_back(add);
 		powerTnt1.print("After Swing + FF with [" + std::to_string(i) + "] (+" +std::to_string(add) +") power: ");
 		xlocations.push_back(powerTnt1.x);
 		ylocations.push_back(powerTnt1.y);
@@ -489,12 +516,11 @@ int main() {
 	// generate micro boosters
 	Tnt* microBoosters[15];
 	for (int i = 0; i < 15; i++) {
-		microBoosters[i] = new Tnt(xlocations[i], ylocations[i], -333382.49000000954, 0.0, 0.0, 0.0, 1); // create the micro boosters array with 1 tnt each
+		microBoosters[i] = new Tnt(xlocations[i], ylocations[i], -333592.49000000954, 0.0, 0.0, 0.0, 1); // create the micro boosters array with 1 tnt each
 		microBoosters[i]->print("MicroBooster[" + std::to_string(i) + "]:\t");
 	}
 	// start the projectile
-	Tnt projectile0("-199971.50999999046 253.97999998182058 -333382.49000000954 -1.9164525895466311 -0.03919999988675116 0.0");
-	//Tnt projectile0("-199973.46103707515 253.97999998182058 -333382.49000000954 -1.9164525895466311 -0.03919999988675116 0.0");
+	Tnt projectile0("-199974.50999999046 253.97999998182058 -333592.49000000954 0.0 -0.03919999988675116 0.0");
 	// compute the boosters to power exposure
 	std::vector<std::vector<double>> microExposures(15);
 	for (int i = 0; i < 15; i++) {
@@ -539,29 +565,154 @@ int main() {
 	// find the taget yvelocity
 	// Find the target y-velocity
 	
-	double targetYvel0 = CalculateTargetError(projectile0.y);
-	std::cout << "targetYvel0: " << targetYvel0 << std::endl;
+	double targetYvel0_low = CalculateTargetError(projectile0.y);
+	double targetYvel0_high = 0.31792389011258698;
+	std::cout << "targetYvel0_low: " << targetYvel0_low << std::endl;
+	std::cout << "targetYvel0_high: " << targetYvel0_high << std::endl;
+	
+	/************** ( Finding a power's y position:) **************/
+	double recordThePowerY = 0.0;
+	bool found = false;
+	unsigned long int counter = 0;
+	// Unknown booster position
+	Tnt proj0("-199974.50999999046 226.0 -333636.49000000954"); // .50999999046  .49000000954
+	Tnt bo("-199974.50999999046 225.0 -333637.5");
+	Tnt ss0Start("-199975.5 225.875 -333639.5");
+	Tnt ss1Start("-199977.5 225.875 -333638.5");
+	Tnt ss2Start("-199978.5 225.875 -333636.5");
 
+	std::cout << "\nFixed Booster Ratios: " << std::endl;
+	proj0.print("  Initial Projectile: ");
+	bo.print("  Booster: ");
+	ss0Start.print("  ss0: ");
+	ss1Start.print("  ss1: ");
+	ss2Start.print("  ss2: ");
+
+	for (int ib = 0; ib < 100; ib++) {
+		for (int i0 = 0; i0 < 25; i0++) {
+			for (int i1 = 0; i1 < 25; i1++) {
+				for (int i2 = 0; i2 < 25; i2++) {
+					for (int xoffset = -1; xoffset < 3; xoffset++) {
+						for (int zoffset = -1; zoffset < 3; zoffset++) {
+							counter++;
+							Tnt ss0 = ss0Start;
+							ss0.x -= xoffset;
+							ss0.z -= zoffset;
+
+							Tnt ss1 = ss1Start;
+							ss1.x -= xoffset;
+							ss1.z -= zoffset;
+
+							Tnt ss2 = ss2Start;
+							ss2.x -= xoffset;
+							ss2.z -= zoffset;
+
+							bo.amount = ib;
+							ss0.amount = i0;
+							ss1.amount = i1;
+							ss2.amount = i2;
+							Tnt proj1 = proj0;
+							proj1.explosion(bo);
+							proj1.explosion(ss0);
+							proj1.explosion(ss1);
+							proj1.explosion(ss2);
+							proj1.freefall(1);
+
+							if (proj1.y > 253.97998 - 0.000003 && proj1.y < 253.97998 + 0.000003) { //if (proj1.y > 253.97999998182058 - 0.00002 && proj1.y < 253.97999998182058 - 0.000018) { (proj1.y > 253.97998 - 0.000001 && proj1.y < 253.97998 + 0.000001)
+								std::cout << "Counter: " << counter << std::endl;
+								std::cout << "  b0: " << bo.amount << " ss0: " << ss0.amount << " ss1:" << ss1.amount << " ss2: " << ss2.amount << std::endl;
+								std::cout << "  x0: " << ss0.x << " z0: " << ss0.z << std::endl;
+								std::cout << "  x0: " << xoffset << " z0: " << zoffset << std::endl;
+								std::cout << "  Height: " << proj1.y << std::endl;
+								found = true;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Unknown booster position
+	ss0Start = Tnt("-199971.5 225.875 -333480.5");
+	ss1Start = Tnt("-199971.5 225.875 -333480.5");
+
+	std::cout << "\nUnknown Booster Ratios: " << std::endl;
+	proj0.print("  Initial Projectile: ");
+	bo.print("  Booster: ");
+	ss0Start.print("  ss0Start: ");
+	ss1Start.print("  ss1Start: ");
+
+	for (int i = 0; i < 100; i++) {
+		for (int x0 = 0; x0 < 5; x0++) {
+			for (int z0 = 0; z0 < 3; z0++) {
+				for (int j = 0; j < 25; j++) {
+					for (int k = 0; k < 25; k++) {
+						for (int x1 = 0; x1 < 5; x1++) {
+							for (int z1 = 0; z1 < 3; z1++) {
+								counter++;
+								bo.amount = i;
+								Tnt ss0 = ss0Start;
+								ss0.x += x0;
+								ss0.z -= z0;
+								ss0.amount = j;
+								Tnt ss1 = ss1Start;
+								ss1.x += x1;
+								ss1.z -= z1;
+								ss1.amount = k;
+
+								Tnt proj1 = proj0;
+
+								proj1.explosion(bo);
+								proj1.explosion(ss0);
+								proj1.explosion(ss1);
+
+								proj1.freefall(1);
+
+								if (proj1.y > 253.97998 - 0.000003 && proj1.y < 253.97998 + 0.000003) { //if (proj1.y > 253.97999998182058 - 0.00002 && proj1.y < 253.97999998182058 - 0.000018) {
+									std::cout << "Counter: " << counter << std::endl;
+									std::cout << "  b0: " << bo.amount << " ss0: " << ss0.amount << " ss1:" << ss1.amount << std::endl;
+									std::cout << "  x0: " << ss0.x << " z0: " << ss0.z << std::endl;
+									std::cout << "  x0: " << x0 << " z0: " << z0 << std::endl;
+									std::cout << "  x1: " << ss1.x << " z1: " << ss1.z << std::endl;
+									std::cout << "  x1: " << x1 << " z1: " << z1 << std::endl;
+
+									std::cout << "  Height: " << proj1.y << std::endl;
+									found = true;	
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// manual input
+	std::cout << "\nDid the script find ratios? " << found << std::endl;
+	std::cout << "Input power Y position (copy/paste from above if it found any): " ;
+	std::cin >> recordThePowerY;
+	std::cout << "End of y power position calculation" << std::endl << std::endl;
+
+	///////////
 	// add the influence of the ypower
-	Tnt yPower0("-199971.49000000954 253.97730819807788 -333382.49000000954 0.0 0.0 0.0");
+	Tnt yPower0("-199974.49000000954 0.0 -333592.49000000954 0.0 0.0 0.0");
+	yPower0.y = recordThePowerY;
 	yPower0.print("yPower0: ");
 	
 	int record = 0;
 	double errorYvel = 100000000.0;
 	double startVel255;
-	for (int i = 0; i < 10000; i++) {
+	for (int i = 0; i < 100000; i++) {
 		yPower0.amount = i;
 		Tnt projectile1 = projectile0; // reset
 
-		// projectile1.u += midX_influence;
-		// projectile1.v += midY_influence;
-
 		projectile1.explosion(yPower0);
-		double errorCalculated = std::abs(projectile1.v - targetYvel0);
-		if (errorCalculated < errorYvel && projectile1.v > targetYvel0) {
+		double errorCalculated = std::abs(projectile1.v - targetYvel0_low);
+		if (errorCalculated < errorYvel && projectile1.v > targetYvel0_low) {
 			errorYvel = errorCalculated;
 			record = i;
-			std::cout << "record: " << record << std::endl;
+			std::cout << "score: " << record << std::endl;
 			std::cout << "errorYvel: " << errorYvel << std::endl;
 
 			std::cout << "xvel: " << projectile1.u << std::endl;
@@ -578,40 +729,8 @@ int main() {
 			std::cout << std::endl;
 		}
 	}
-	//////////////////
-	/*
-	Tnt proj0("-199971.49000000954 226.0 -333479.49000000954 0.0 0.0 0.0");
-	Tnt bo("-199971.49000000954 225.0 -333480.51 0.0 0.0 0.0");
-	Tnt ss0("-199971.49000000954 225.875 -333482.5");
-	Tnt ss1("-199971.49000000954 225.875 -333484.5099");
-
-	for (int i = 0; i < 100; i++) {
-		for (int j = 0; j < 20; j++) {
-			for (int k = 0; k < 1; k++) {
-
-				bo.amount = i;
-				ss0.amount = j;
-				ss1.amount = k;
-
-				Tnt proj1 = proj0;
-
-				proj1.explosion(bo);
-				proj1.explosion(ss0);
-				proj1.explosion(ss1);
-
-				proj1.freefall(1);
-
-				if (proj1.y > 253.9774 - 0.002 && proj1.y < 253.9774 + 0.0001) {
-					std::cout << "Amount: " << i << " " << j << " " << k << std::endl;
-					std::cout << " Height: " << proj1.y << std::endl;
-				}
-
-			}
-			
-		}
-	}*/
-
-	// 255.0 script
+	
+	/*********** 255.0 script **********/
 	int microAmountStart[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	int microAmountCurrent[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	int microAmountFinal[12] = { 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
@@ -620,7 +739,7 @@ int main() {
 
 	// startVel255 contains the starting velocity of the projectile
 	std::cout << "starting velocity: " << startVel255 << std::endl;
-	std::cout << "starting error: " << startVel255 - targetYvel0 << std::endl;
+	std::cout << "starting error: " << startVel255 - targetYvel0_low << std::endl;
 
 	Tnt rangeOutput(0.0, projectile0.y, 0.0, 0.0, startVel255, 0.0);
 	rangeOutput.freefall(7);
@@ -633,32 +752,48 @@ int main() {
 	std::cout << "maximum possible value: " << rangeOutput.y << std::endl;
 
 
-	double record255;
-	double error255 = 100000000.0;
+	double error255_low = 100000000.0;
+	double scoreY;
 	do {
 		finalVelocity255 = startVel255;
 		for (int i = 0; i < 12; ++i) {
 			finalVelocity255 += (microAmountCurrent[i] * microExposures[i][1]);
 		}
-		if (std::abs(finalVelocity255 - targetYvel0) <= error255) {
+		scoreY = fastff(finalVelocity255);
+		if (std::abs(scoreY - 255.0) <= error255_low) {
+			std::cout << "LOW" << std::endl;
 			for (int i = 0; i < 12; i++) {
 				std::cout << microAmountCurrent[i] << " ";
 			} 
 			std::cout << std::endl;
 
-			error255 = std::abs(finalVelocity255 - targetYvel0);
-			record255 = finalVelocity255;
-			std::cout << "  record255: " << record255 << std::endl;
-			std::cout << "  error255: " << error255 << std::endl;
+			error255_low = std::abs(scoreY - 255.0);
+			std::cout << "  record255Y7: " << scoreY << std::endl;
+			std::cout << "  Velocity255V0: " << finalVelocity255 << std::endl;
+			std::cout << "  error255: " << error255_low << std::endl;
 
 			Tnt output(0.0, projectile0.y, 0.0, 0.0, finalVelocity255, 0.0);
-			output.freefall(7);
+			output.print("tick 0: ");
+			for(int i = 0; i < 7; i++){
+				output.freefall(1);
+				output.print("tick " + std::to_string(i) + ": ");
+			}
 			std::cout << "  final position: " << output.y << std::endl;
+			std::cout << "  ratio input help: ";
+			for (int i = 0; i < 12; i++) {
+				std::cout << powerAdd[i] << ":" << microAmountCurrent[i] << " ";
+			}
+			std::cout << std::endl;
 		}
 	} while (generateNextPermutation(microAmountCurrent, microAmountStart, microAmountFinal, 12));
 
 	for (int i = 0; i < 15; i++) {
 		delete microBoosters[i];
+	}
+
+	std::cout << "stuff ended" << std::endl;
+	while (true) {
+		// do nothing
 	}
 	return 0;
 }
