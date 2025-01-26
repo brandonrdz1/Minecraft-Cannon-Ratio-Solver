@@ -6,7 +6,7 @@
 #include <thread>
 #include <mutex>
 
-
+const int ratio_size = 8;
 class Tnt {
 public:
     double x = 0.0, y = 0.0, z = 0.0;
@@ -41,7 +41,7 @@ public:
 
     void swing(Tnt source) {
         Tnt origin(source);
-        std::vector<std::vector<double>> locations;
+        std::vector<std::vector<double>> locations(source.amount);
         double dx, dy, dz;
         float distance;
         double f;
@@ -53,7 +53,7 @@ public:
             loc[0] = next.x;
             loc[1] = next.y;
             loc[2] = next.z;
-            locations.push_back(loc);
+            locations[i]=loc;
             dx = origin.x - locations[i][0], dy = origin.y - locations[i][1], dz = origin.z - locations[i][2];
             distance = std::sqrt(dx * dx + dy * dy + dz * dz);
             if (distance > 8.0 || distance == 0.0) {
@@ -81,6 +81,20 @@ public:
             y += v;
             z += w;
             // print(" " + std::to_string(i + 1) + " ");
+            u *= Tnt::drag;
+            v *= Tnt::drag;
+            w *= Tnt::drag;
+        }
+    }
+    void freefall_print(int ticks, std::string str = "") {
+        print(str+ " 0 ");
+        for (int i = 0; i < ticks; i++) {
+            v += Tnt::gravity;
+
+            x += u;
+            y += v;
+            z += w;
+            print(str + " " + std::to_string(i + 1) + " ");
             u *= Tnt::drag;
             v *= Tnt::drag;
             w *= Tnt::drag;
@@ -115,14 +129,14 @@ struct VectorHash {
     }
 };
 
-bool generateNextPermutation(short int currentArray[], const short int startArray[], const short int finalArray[], size_t size) {
-    size_t i = size;
+bool generateNextPermutation(short int currentArray[], const short int startArray[], const short int finalArray[]) {
+    size_t i = ratio_size;
 
     while (i > 0) {
         --i;
         if (currentArray[i] < finalArray[i]) {
             ++currentArray[i];
-            for (size_t j = i + 1; j < size; ++j) {
+            for (size_t j = i + 1; j < ratio_size; ++j) {
                 currentArray[j] = startArray[j]; // Reset subsequent values to their start
             }
             return true;
@@ -170,142 +184,87 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
     for (int param : assigned_numbers) {
 		// Reset/initialize has map for each thread
         std::cout << "Processing parameter: " << param << std::endl;
+		std::this_thread::sleep_for(std::chrono::seconds(3)); // Add delay to stagger threads
+        
+        Tnt swing0("-200001.4037412894 229.0199999809265 -333579.5 -0.4335096811347792 0.0 0.0");
 
-        Tnt swingTnt("-199974.5000002721 254.0199999809265 -333625.50999999046 0.9701997615808802 0.0 0.0", 75);
-        Tnt swingTntRev("-199974.49000000954 248.0 -333625.49000000954", 1);
-        swingTnt.explosion(swingTntRev, 1);
 
-        Tnt powerTnt0("-199974.49755261914 254.0199999809265 -333620.5534764172 -0.00740155756734615 0.0 0.9177931383509221");
-        Tnt powerTnt0Rev0("-199966.50999999046  254.0 -333620.11500000954", 1);
-        powerTnt0.explosion(powerTnt0Rev0);
-
-        std::vector<int> powerAdd;
-        int add = -1;
-        std::vector<double> xlocations, ylocations;
-        int cap = 0;
-        for (int i = param; i <= 1000; i++) {
-            add++;
-            Tnt powerTnt1 = powerTnt0; // reset
-            swingTnt.amount = i;
-            powerTnt1.swing(swingTnt);
-            powerTnt1.freefall(1);
-            powerTnt1.y = 253.98000010565525;
-
-            double decimal = powerTnt1.x - std::floor(powerTnt1.x);
-            if (decimal < 0.49f || decimal > 0.51f) {
-                continue;
-            }
-
-            powerTnt1.z = -333592.49000000954; // guider coordinate
-            powerAdd.push_back(add);
-            powerTnt1.print("  swing + ff: [" + std::to_string(i) + "] (+" + std::to_string(add) + ") power: ");
-            xlocations.push_back(powerTnt1.x);
-            ylocations.push_back(powerTnt1.y);
-            cap++;
-            if (cap >= 15) { break; }
-            add = 0;
-        }
-
-        std::vector<double> microExposures(15*13, 0.0);
-        Tnt* microBoosters[15];
-        for (int i = 0; i < 15; i++) {
-            microBoosters[i] = new Tnt(xlocations[i], ylocations[i], -333592.49000000954, 0.0, 0.0, 0.0, 1);
-        }
-
-        Tnt projectile0("-199974.50999999046 253.97999998182058 -333592.49000000954 0.0 -0.03919999988675116 0.0");
-        for (int i = 0; i < 15; i++) {
-            Tnt projectile1i(projectile0.x, projectile0.y, projectile0.z, 0.0, 0.0, 0.0);
-            microExposures[i * 13] = 0.0;
-            for (int j = 1; j <= 12; j++) {
-                projectile1i.explosion(*microBoosters[i]);
-                microExposures[i * 13 + j] = projectile1i.v;
-            }
-        }
-        Tnt yPower0("-199974.49000000954 0.0 -333592.49000000954 0.0 0.0 0.0");
-        yPower0.y = 253.97998101488093;
-
-        double errorYvel = std::numeric_limits<double>::max();
-        double startVel255 = 0.0;
-
-        for (int i = 0; i < 100000; i++) {
-            yPower0.amount = i;
-            Tnt projectile1 = projectile0;
-            projectile1.explosion(yPower0);
-            double errorCalculated = std::abs(projectile1.v - 0.31792389011258693);
-            if (errorCalculated < errorYvel && projectile1.v > 0.31792389011258693) {
-                errorYvel = errorCalculated;
-                startVel255 = projectile1.v;
-                std::cout << "  power: " << yPower0.amount << std::endl;
-            }
-        }
-		std::this_thread::sleep_for(std::chrono::seconds(10)); // Add delay to stagger threads
-        short int microAmountStart[15] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        short int microAmountCurrent[15] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        short int microAmountFinal[15] = { 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
-        double finalVelocity255 = 0.0;
-        double scoreY = 1.0;
-
+        double decimal = 0.0;
+        int forward = 0;
+        short int ratio_start[ratio_size] = { param, 0, 0, 0, 0, 0, 0, 0 };
+        short int ratio_curr[ratio_size] = { param, 0, 0, 0, 0, 0, 0, 0 };
+        short int ratio_final[ratio_size] = { param, 12, 12, 12, 12, 12, 12, 12 };
+		unsigned long long int counter = 0;
         do {
-            outputModNumber++;
-			if (outputModNumber % 10000000000 == 0) {
-				std::lock_guard<std::mutex> lock(output_mutex);
-				std::cout << "Thread[" << threadNum << "] processed " << outputModNumber << " permutations." << std::endl;
-				std::cout << "  Current vector searched: ";
-				for (int i = 0; i < 15; i++) {
-					std::cout << microAmountCurrent[i] << " ";
-				}
-                std::cout << std::endl;
-			}
-            finalVelocity255 = startVel255;
-			for (int i = 0; i < 15; i++) {
-				finalVelocity255 += microExposures[i * 13 + microAmountCurrent[i]];
-			}
-            //scoreY = fastff(finalVelocity255);
-            if (finalVelocity255 < 0.3179238901125882) {
-                // Check if all numbers to the right of the current-changing index are zero
-                short int allZerosRight = 0;
-                for (int j = 14; j >= 0; --j) {
-                    if (microAmountCurrent[j] == 0) {
-                        allZerosRight++;
-                    }
-                    else {
-                        break;
-                    }
-                }
-                microAmountCurrent[14 - allZerosRight] = microAmountFinal[14 - allZerosRight];
-                continue; // Skip invalid scores but do not apply the finalization logic
-            }
-            if (finalVelocity255 == 0.3179238901125882) {
-				std::cout << "Thread[" << threadNum << "] found a new best error: " << scoreY - 255.0  << std::endl;
-                std::lock_guard<std::mutex> lock(output_mutex);
-                global_best_error = scoreY - 255.0;
-                std::cout << "  ";
-                for (int i = 0; i < 15; i++) {
-                    std::cout << microAmountCurrent[i] << " ";
-                }
-                std::cout << std::endl;
-                std::cout << "  record255Y7: " << scoreY << std::endl;
-                std::cout << "  Velocity255V0: " << finalVelocity255 << std::endl;
-                std::cout << "  error255: " << global_best_error << std::endl;
-
-                Tnt output(0.0, projectile0.y, 0.0, 0.0, finalVelocity255, 0.0);
-                output.print("  tick 0: ");
-                for (int i = 0; i < 7; i++) {
-                    output.freefall(1);
-                    output.print("  tick " + std::to_string(i) + ": ");
-                }
-                std::cout << "  final position: " << output.y << std::endl;
-                std::cout << "  ratio input help: ";
-                for (int i = 0; i < 15; i++) {
-                    std::cout << powerAdd[i] << ":" << microAmountCurrent[i] << " ";
+            counter++;
+            if (counter % 1000000 == 0) {
+                std::cout << "Thread[" << threadNum << "] | is at: ";
+                for (int i = 0; i < ratio_size; i++) {
+                    std::cout << ratio_curr[i] << (i < ratio_size - 1 ? ", " : " ");
                 }
                 std::cout << std::endl;
             }
-        } while (generateNextPermutation(microAmountCurrent, microAmountStart, microAmountFinal, 15));
+            Tnt swing1 = swing0;
+            swing1.freefall(ratio_curr[0]);
+			swing1.amount = ratio_curr[1];
+            swing1.swing(swing1);
+            if (swing1.x > -200000) { continue; }
 
-        for (int i = 0; i < 15; i++) {
-            delete microBoosters[i];
-        }
+			swing1.freefall(ratio_curr[2]);
+			swing1.amount = ratio_curr[3];
+            swing1.swing(swing1);
+            if (swing1.x > -200000) { continue; }
+
+			swing1.freefall(ratio_curr[4]);
+			swing1.amount = ratio_curr[5];
+            swing1.swing(swing1);
+            if (swing1.x > -200000) { continue; }
+
+			swing1.freefall(ratio_curr[6]);
+			swing1.amount = ratio_curr[7];
+            swing1.swing(swing1);
+            if (swing1.x > -200000) { continue; }
+
+            decimal = swing1.x - floor(swing1.x);
+            forward = (swing1.x * -1) - 200000;
+            if (forward == 3 && decimal < 0.51f && decimal > 0.49f && swing1.y > 229.0 && swing1.y < 230.0 && abs(swing1.u) < 0.01) {
+                std::cout << "Thread[" << threadNum << "] | ";
+                for (int i = 0; i < ratio_size; i++) {
+                    std::cout << ratio_curr[i] << (i < ratio_size - 1 ? ", " : " ");
+                }
+                swing1.print();
+
+                Tnt swing2 = swing0;
+
+                std::cout << "  FF0: " << ratio_curr[0] << std::endl;
+                swing2.freefall_print(ratio_curr[0]);
+                std::cout << "  Amt1: "  << ratio_curr[1] << std::endl;
+                swing2.amount = ratio_curr[1];
+                swing2.swing(swing2);
+                
+                std::cout << "  FF2: " << ratio_curr[2] << std::endl;
+                swing2.freefall_print(ratio_curr[2]);
+                std::cout << "  Amt3: " << ratio_curr[3] << std::endl;
+                swing2.amount = ratio_curr[3];
+                swing2.swing(swing2);
+
+                std::cout << "  FF4: " << ratio_curr[4] << std::endl;
+                swing2.freefall_print(ratio_curr[4]);
+                std::cout << "  Amt5: " << ratio_curr[5] << std::endl;
+                swing2.amount = ratio_curr[5];
+                swing2.swing(swing2);
+
+                std::cout << "  FF6: " << ratio_curr[6] << std::endl;
+                swing2.freefall_print(ratio_curr[6]);
+                std::cout << "  Amt7: " << ratio_curr[7] << std::endl;
+                swing2.amount = ratio_curr[7];
+                swing2.swing(swing2);
+
+                swing2.print(" Final State Vector: ");
+                std::cout << std::endl;
+            }
+
+        } while (generateNextPermutation(ratio_curr, ratio_start, ratio_final));
     }
 
     std::cout << "Thread[" << threadNum << "] finished processing." << std::endl;
@@ -316,19 +275,19 @@ int main() {
     unsigned int thread_count = std::thread::hardware_concurrency();
     std::cout << "Available threads: " << thread_count << std::endl;
 
-    const int start = 70, end = 210;
+    const int start = 0, end = 12;
     std::vector<std::thread> threads;
     std::vector<std::vector<int>> thread_assignments(thread_count);
 
     int current_thread = 0;
-    for (int i = start; i <= end; i += 10) {
+    for (int i = start; i <= end; i ++) {
         thread_assignments[current_thread].push_back(i);
         current_thread = (current_thread + 1) % thread_count;
     }
 
     for (unsigned int i = 0; i < thread_count; i++) {
         threads.emplace_back([i, &thread_assignments]() {
-            std::this_thread::sleep_for(std::chrono::seconds(1) * i * 0.5); // Add delay to stagger threads
+            std::this_thread::sleep_for(std::chrono::seconds(1) * i * 0.05); // Add delay to stagger threads
             process_range(i, thread_assignments[i]);
             });
     }
