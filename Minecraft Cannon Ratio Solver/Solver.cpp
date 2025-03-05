@@ -171,111 +171,143 @@ double fastff(double vel) {
 }
 
 std::mutex output_mutex;
-double global_best_error = std::numeric_limits<double>::max(); // Start with the worst possible error
+double global_best_value = std::numeric_limits<double>::max(); // Start with the worst possible error
+
+double min_height, max_height;
+unsigned int final_hammer_amount;
 
 void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
     std::cout << "Thread[" << threadNum << "] assigned numbers: ";
-    unsigned long long int outputModNumber = 0;
     for (int num : assigned_numbers) {
         std::cout << num << " ";
     }
     std::cout << std::endl;
 
     for (int param : assigned_numbers) {
-		// Reset/initialize has map for each thread
         std::cout << "Processing parameter: " << param << std::endl;
-		std::this_thread::sleep_for(std::chrono::seconds(3)); // Add delay to stagger threads
-        
-        Tnt swing0("-200001.4037412894 229.0199999809265 -333579.5 -0.4335096811347792 0.0 0.0");
 
+        double hx, hy, hz, hu, hv, hw;
+        double sx, sy, sz, su, sv, sw;
+        int ff_max;
+        std::cout << "Enter hammer x, y, z, u, v, w: ";
+        std::cin >> hx >> hy >> hz >> hu >> hv >> hw;
+        std::cout << "Enter slabbust x, y, z, u, v, w: ";
+        std::cin >> sx >> sy >> sz >> su >> sv >> sw;
+        std::cout << "Enter final TNT amount: ";
+        std::cin >> final_hammer_amount;
+        std::cout << "Enter min and max height constraints: ";
+        std::cin >> min_height >> max_height;
+        std::cout << "Enter max freefall constraints: ";
+        std::cin >> ff_max;
 
-        double decimal = 0.0;
-        int forward = 0;
-        short int ratio_start[ratio_size] = { param, 0, 0, 0, 0, 0, 0, 0 };
-        short int ratio_curr[ratio_size] = { param, 0, 0, 0, 0, 0, 0, 0 };
-        short int ratio_final[ratio_size] = { param, 12, 12, 12, 12, 12, 12, 12 };
-		unsigned long long int counter = 0;
+        Tnt hammer0(hx, hy, hz, hu, hv, hw);
+        Tnt slabbust0(sx, sy, sz, su, sv, sw);
+
+        double y_vel = DBL_MAX, y_vel_record = DBL_MAX;
+        short int ratio_start[ratio_size] = { 0 };
+        short int ratio[ratio_size] = { 0 };
+        short int ratio_final[ratio_size] = { 20, 1, 12, 12, 1, 12, 12 };
+        unsigned long long int counter = 0;
+        double ff, ff_sum;
+
         do {
+            Tnt hammer1 = hammer0;
+            Tnt slabbust1 = slabbust0;
+
+            ff = ratio[0];
+            ff_sum = ff;
+            hammer1.freefall(ff);
+            slabbust1.freefall(ff);
+
+            for (int i = 1; i + 3 < ratio_size; i += 3) {
+                if (ratio[i] == 0) {
+                    slabbust1.amount = ratio[i + 1];
+                    hammer1.swing(slabbust1);
+                    slabbust1.swing(slabbust1);
+                }
+                else {
+                    hammer1.amount = ratio[i + 1];
+                    slabbust1.swing(hammer1);
+                    hammer1.swing(hammer1);
+                }
+                ff = ratio[i + 2];
+                ff_sum += ff;
+                hammer1.freefall(ff);
+                slabbust1.freefall(ff);
+            }
+
+            if (hammer1.y < min_height || hammer1.y > max_height || slabbust1.y < min_height || slabbust1.y > max_height || ff_sum > ff_max) {
+                continue;
+            }
+
+            hammer1.amount = final_hammer_amount;
+            slabbust1.swing(hammer1);
+            y_vel = slabbust1.getVel()[1];
+            if (y_vel < y_vel_record) {
+                y_vel_record = y_vel;
+                std::cout << "Thread[" << threadNum << "] New best vel: " << y_vel_record << " with parameters: ";
+                for (int i = 0; i < ratio_size; i++) {
+                    std::cout << ratio[i] << " ";
+                }
+                std::cout << std::endl;
+
+                // Print sequence of actions
+                std::cout << "freefall: " << ratio[0] << std::endl;
+                for (int i = 1; i + 3 < ratio_size; i += 3) {
+                    if (ratio[i] == 0) {
+                        std::cout << "slabbust swing: " << ratio[i + 1] << std::endl;
+                    }
+                    else {
+                        std::cout << "hammer swing: " << ratio[i + 1] << std::endl;
+                    }
+                    std::cout << "freefall: " << i << std::endl;
+                }
+
+                // Print history
+                hammer1 = hammer0;
+                slabbust1 = slabbust0;
+
+                ff = ratio[0];
+                std::cout << "Initial freefall: " << ff << std::endl;
+                hammer1.freefall_print(ff, " H:");
+                slabbust1.freefall_print(ff, " S:");
+
+                for (int i = 1; i + 3 < ratio_size; i += 3) {
+                    if (ratio[i] == 0) {
+                        std::cout << " slabbust swing: " << ratio[i + 1] << std::endl;
+                        slabbust1.amount = ratio[i + 1];
+                        hammer1.swing(slabbust1);
+                        slabbust1.swing(slabbust1);
+                    }
+                    else {
+                        std::cout << " hammer swing: " << ratio[i + 1] << std::endl;
+                        hammer1.amount = ratio[i + 1];
+                        slabbust1.swing(hammer1);
+                        hammer1.swing(hammer1);
+                    }
+                    std::cout << " freefall: " << ratio[i + 2] << std::endl;
+                    ff = ratio[i + 2];
+                    hammer1.freefall_print(ff, " H:");
+                    slabbust1.freefall_print(ff, " S:");
+                }
+                hammer1.amount = final_hammer_amount;
+                slabbust1.swing(hammer1);
+
+                hammer1.print("Hammer Position: ");
+                slabbust1.print("Slabbust Position: ");
+                std::cout << std::endl;
+            }
             counter++;
-            if (counter % 1000000 == 0) {
-                std::cout << "Thread[" << threadNum << "] | is at: ";
-                for (int i = 0; i < ratio_size; i++) {
-                    std::cout << ratio_curr[i] << (i < ratio_size - 1 ? ", " : " ");
-                }
-                std::cout << std::endl;
-            }
-            Tnt swing1 = swing0;
-            swing1.freefall(ratio_curr[0]);
-			swing1.amount = ratio_curr[1];
-            swing1.swing(swing1);
-            if (swing1.x > -200000) { continue; }
-
-			swing1.freefall(ratio_curr[2]);
-			swing1.amount = ratio_curr[3];
-            swing1.swing(swing1);
-            if (swing1.x > -200000) { continue; }
-
-			swing1.freefall(ratio_curr[4]);
-			swing1.amount = ratio_curr[5];
-            swing1.swing(swing1);
-            if (swing1.x > -200000) { continue; }
-
-			swing1.freefall(ratio_curr[6]);
-			swing1.amount = ratio_curr[7];
-            swing1.swing(swing1);
-            if (swing1.x > -200000) { continue; }
-
-            decimal = swing1.x - floor(swing1.x);
-            forward = (swing1.x * -1) - 200000;
-            if (forward == 3 && decimal < 0.51f && decimal > 0.49f && swing1.y > 229.0 && swing1.y < 230.0 && abs(swing1.u) < 0.01) {
-                std::cout << "Thread[" << threadNum << "] | ";
-                for (int i = 0; i < ratio_size; i++) {
-                    std::cout << ratio_curr[i] << (i < ratio_size - 1 ? ", " : " ");
-                }
-                swing1.print();
-
-                Tnt swing2 = swing0;
-
-                std::cout << "  FF0: " << ratio_curr[0] << std::endl;
-                swing2.freefall_print(ratio_curr[0]);
-                std::cout << "  Amt1: "  << ratio_curr[1] << std::endl;
-                swing2.amount = ratio_curr[1];
-                swing2.swing(swing2);
-                
-                std::cout << "  FF2: " << ratio_curr[2] << std::endl;
-                swing2.freefall_print(ratio_curr[2]);
-                std::cout << "  Amt3: " << ratio_curr[3] << std::endl;
-                swing2.amount = ratio_curr[3];
-                swing2.swing(swing2);
-
-                std::cout << "  FF4: " << ratio_curr[4] << std::endl;
-                swing2.freefall_print(ratio_curr[4]);
-                std::cout << "  Amt5: " << ratio_curr[5] << std::endl;
-                swing2.amount = ratio_curr[5];
-                swing2.swing(swing2);
-
-                std::cout << "  FF6: " << ratio_curr[6] << std::endl;
-                swing2.freefall_print(ratio_curr[6]);
-                std::cout << "  Amt7: " << ratio_curr[7] << std::endl;
-                swing2.amount = ratio_curr[7];
-                swing2.swing(swing2);
-
-                swing2.print(" Final State Vector: ");
-                std::cout << std::endl;
-            }
-
-        } while (generateNextPermutation(ratio_curr, ratio_start, ratio_final));
+        } while (generateNextPermutation(ratio, ratio_start, ratio_final));
     }
-
     std::cout << "Thread[" << threadNum << "] finished processing." << std::endl;
 }
-
 int main() {
     std::cout << std::setprecision(17);
-    unsigned int thread_count = std::thread::hardware_concurrency();
+    unsigned int thread_count = 1; // std::thread::hardware_concurrency();
     std::cout << "Available threads: " << thread_count << std::endl;
 
-    const int start = 0, end = 12;
+    const int start = 0, end = 0;
     std::vector<std::thread> threads;
     std::vector<std::vector<int>> thread_assignments(thread_count);
 
@@ -296,7 +328,7 @@ int main() {
         thread.join();
     }
 
-    std::cout << "Final Best Error: " << global_best_error << std::endl;
+    std::cout << "Final Best Value: " << global_best_value << std::endl;
     std::cout << "End of computation." << std::endl;
     while (true) {
 
