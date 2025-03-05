@@ -6,7 +6,7 @@
 #include <thread>
 #include <mutex>
 
-const int ratio_size = 8;
+const int ratio_size = 13;
 class Tnt {
 public:
     double x = 0.0, y = 0.0, z = 0.0;
@@ -33,6 +33,9 @@ public:
         double dy = y - source.y; // double dy = y - (source.y + explosion_height);
         double dz = z - source.z;
         float distance = std::sqrt(dx * dx + dy * dy + dz * dz); // double
+        if (distance > 8.0 || distance == 0.0) {
+            return;
+        }
         double f = (-1.0 / 8.0 + 1.0 / distance) * source.amount * exposure;
         u += f * dx;
         v += f * dy;
@@ -188,7 +191,7 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
 
         double hx, hy, hz, hu, hv, hw;
         double sx, sy, sz, su, sv, sw;
-        int ff_max;
+        int ff_max, tnt_max;
         std::cout << "Enter hammer x, y, z, u, v, w: ";
         std::cin >> hx >> hy >> hz >> hu >> hv >> hw;
         std::cout << "Enter slabbust x, y, z, u, v, w: ";
@@ -199,27 +202,30 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
         std::cin >> min_height >> max_height;
         std::cout << "Enter max freefall constraints: ";
         std::cin >> ff_max;
+        std::cout << "Enter max tnt constraints: ";
+		std::cin >> tnt_max;
 
         Tnt hammer0(hx, hy, hz, hu, hv, hw);
         Tnt slabbust0(sx, sy, sz, su, sv, sw);
 
         double y_vel = DBL_MAX, y_vel_record = DBL_MAX;
-        short int ratio_start[ratio_size] = { 0 };
-        short int ratio[ratio_size] = { 0 };
-        short int ratio_final[ratio_size] = { 20, 1, 12, 12, 1, 12, 12 };
+        short int ratio_start[ratio_size] = { 0, 0, 0, 0, 0, 0, 0 , 0, 0, 0, 0, 0, 1 };
+        short int ratio[ratio_size] = { 0, 0, 0, 0, 0, 0, 0 , 0, 0, 0, 0, 0, 1 };
+        short int ratio_final[ratio_size] = { 0, 1, 20, 0, 1, 20, 0, 1, 20, 0, 1, 20, 1};
         unsigned long long int counter = 0;
-        double ff, ff_sum;
-
+        double ff;
+        double ff_sum, tnt_sum;
         do {
             Tnt hammer1 = hammer0;
             Tnt slabbust1 = slabbust0;
 
             ff = ratio[0];
             ff_sum = ff;
+            tnt_sum = 0;
             hammer1.freefall(ff);
             slabbust1.freefall(ff);
 
-            for (int i = 1; i + 3 < ratio_size; i += 3) {
+            for (int i = 1; i + 2 < ratio_size; i += 3) {
                 if (ratio[i] == 0) {
                     slabbust1.amount = ratio[i + 1];
                     hammer1.swing(slabbust1);
@@ -230,13 +236,14 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
                     slabbust1.swing(hammer1);
                     hammer1.swing(hammer1);
                 }
+				tnt_sum += ratio[i + 1];
                 ff = ratio[i + 2];
                 ff_sum += ff;
                 hammer1.freefall(ff);
                 slabbust1.freefall(ff);
             }
 
-            if (hammer1.y < min_height || hammer1.y > max_height || slabbust1.y < min_height || slabbust1.y > max_height || ff_sum > ff_max) {
+            if (hammer1.y < min_height || hammer1.y > max_height || slabbust1.y < min_height || slabbust1.y > max_height || ff_sum > ff_max || tnt_sum > tnt_max) {
                 continue;
             }
 
@@ -253,14 +260,14 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
 
                 // Print sequence of actions
                 std::cout << "freefall: " << ratio[0] << std::endl;
-                for (int i = 1; i + 3 < ratio_size; i += 3) {
+                for (int i = 1; i + 2 < ratio_size; i += 3) {
                     if (ratio[i] == 0) {
                         std::cout << "slabbust swing: " << ratio[i + 1] << std::endl;
                     }
                     else {
                         std::cout << "hammer swing: " << ratio[i + 1] << std::endl;
                     }
-                    std::cout << "freefall: " << i << std::endl;
+                    std::cout << "freefall: " << ratio[i+2] << std::endl;
                 }
 
                 // Print history
@@ -272,7 +279,7 @@ void process_range(int threadNum, const std::vector<int>& assigned_numbers) {
                 hammer1.freefall_print(ff, " H:");
                 slabbust1.freefall_print(ff, " S:");
 
-                for (int i = 1; i + 3 < ratio_size; i += 3) {
+                for (int i = 1; i + 2 < ratio_size; i += 3) {
                     if (ratio[i] == 0) {
                         std::cout << " slabbust swing: " << ratio[i + 1] << std::endl;
                         slabbust1.amount = ratio[i + 1];
