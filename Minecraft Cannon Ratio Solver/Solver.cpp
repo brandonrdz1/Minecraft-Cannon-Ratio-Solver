@@ -537,14 +537,9 @@ int main() {
 	std::cout << "}\n";
 	std::cout << "  Optimal Hammer Error: " << best_hammer_error << "\n";
 
-	// Brute Force Optimization for Arrow
-	std::vector<unsigned short> best_arrow_configuration = arrow_booster_amounts;
-	double best_arrow_error = optimization::optimize_boosters_brute_force(
-		arrow_objective_function,
-		best_arrow_configuration,
-		0,   // Lower bound
-		12   // Upper bound
-	);
+    std::cout << "Final Best Value: " << global_best_value << std::endl;
+    std::cout << "End of computation." << std::endl;
+    while (true) {
 
 	std::cout << "\nBrute Force Arrow Booster Configuration Found: { ";
 	for (size_t i = 0; i < best_arrow_configuration.size(); ++i) {
