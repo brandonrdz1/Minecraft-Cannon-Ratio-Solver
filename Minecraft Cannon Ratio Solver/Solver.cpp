@@ -2,550 +2,633 @@
 #include <iomanip>
 #include <cmath>
 #include <sstream>
+#include <vector>
+#include <thread>
+#include <mutex>
 
-#include "optimization.h"
-
-#define center -132111.5 // Where everything starts from
-#define center_x -132111.5 // Where everything starts from
-
-namespace hammer {
-	double explosion_height = 0.061250001192092896;
-	double gravity = -0.04;
-	double drag = 0.98;
-
-	void compute_booster_to_power_x_exposure(double power_x0, double* booster_x_values_G, double* booster_to_power_x_exposures) {
-		std::cout << "Booster to Hammer's Power Exposure: " << std::endl;
-		for (int i = 0; i < 12; i++) {
-			double distance = power_x0 - booster_x_values_G[i];
-			double f = (1.0 - distance / 8.0) * 1.0 / distance; // Just to keep correct calculations TODO: simplify
-			booster_to_power_x_exposures[i] = distance * f;			// Output
-
-			std::cout << "  booster[" << i << "] (blocks/tick): " << booster_to_power_x_exposures[i] << std::endl;
-		}
-		return;
-	}
-
-	double position_after_17gt_L(double* booster_to_power_x_exposures, unsigned short int* booster_amounts, double power_x0_L, unsigned int power_amount) {
-		// X Position of Hammer's Power
-		double power_x1_L = power_x0_L;
-		// Affected by boosters
-		for (int i = 0; i < 12; i++) {
-			power_x1_L += booster_amounts[i] * booster_to_power_x_exposures[i];
-		}
-
-		double hammer_x0_L = 0.0;							// Local initial position of the hammer
-		double distance = hammer_x0_L - power_x1_L;		// Distance between Hammer's power and Hammer
-		double f = (1.0 - distance / 8.0) * 1.0 / distance; // Force
-
-		// Freefall of the hammer for 17 gt
-		double hammer_u0 = f * power_amount * distance;	// Initial velocity of the Hammer
-		double hammer_x17_L = hammer_x0_L;
-		for (int i = 0; i < 17; i++) { // 17
-			hammer_x17_L += hammer_u0;
-			hammer_u0 *= 0.98;
-		}
-
-		// Return's Hammer's local x position
-		return hammer_x17_L;
-	}
-
-	void compute_booster_x_Hrange_virtual_exposure(unsigned short int* booster_amounts, double* booster_toHP_x_exposures, double power_H_x1i_L, unsigned int power_H_amount, double* booster_x_Hrange_virtual_exposure) {
-		// Compute the reference position
-		std::cout << "Booster to Hammer's Final Position Exposure: " << std::endl;
-		for (int i = 0; i < 12; i++) { booster_amounts[i] = 6; }
-		double hammer_x_ref_final_L = position_after_17gt_L(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, power_H_amount);
-
-		// Find the effects of pertubations
-		for (int i = 0; i < 12; i++) {
-		// Decrement 1
-		booster_amounts[i] = 5;
-		double hammer_x_neg_perturbation_final_L = position_after_17gt_L(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, power_H_amount);
-		double decrement_rel_change = hammer_x_ref_final_L - hammer_x_neg_perturbation_final_L;
-
-		// Increment 1
-		booster_amounts[i] = 7;
-		double hammer_x_pos_perturbation_final_L = position_after_17gt_L(booster_toHP_x_exposures, booster_amounts, power_H_x1i_L, power_H_amount);
-		double increment_rel_change = hammer_x_pos_perturbation_final_L - hammer_x_ref_final_L;
-
-		// Compute Inderect relation of incrementing / decrementing the booster[i]
-		booster_x_Hrange_virtual_exposure[i] = (decrement_rel_change + increment_rel_change) / 2.0;
-		// Print out virtual exposure
-		std::cout << "  booster[" << i << "] (blocks): " << booster_x_Hrange_virtual_exposure[i] << std::endl;
-
-		// reset
-		booster_amounts[i] = 6;
-		}
-
-	}
-
-	double compute_virtual_initial_position(double* booster_x_range_virtual_exposure, double x_ref_final_L) {
-		double ref_booster_dist = 0.0;
-		for (int i = 0; i < 12; i++) {
-			ref_booster_dist += 6 * booster_x_range_virtual_exposure[i];
-		}
-		double x0virtual_L = x_ref_final_L - ref_booster_dist;
-		std::cout << "Initial Virtual Hammer's Position (local): " << x0virtual_L << std::endl;
-		return x0virtual_L;
-	}
-
-	double compute_objective(
-		double* booster_toHP_x_exposures,			// To check if the Hammer's power is in range
-		unsigned short int* booster_amounts,		// To check if the Hammer's power is in range
-		double power_H_x1i_L,						// To check if the Hammer's power is in range
-		double* booster_x_Hrange_virtual_exposure,	// To compute Hammer's final position
-		double hammer_x0virtual_L,					// Hammer's virtual initial position
-		double target_x_L							// To minimize
-	) {
-		// Check if this will place the hammer's power within range
-		// Position of hammer's power with current boosters:
-		double power_H_x1_L = power_H_x1i_L;
-		for (int i = 0; i < 12; i++) {
-			power_H_x1_L += booster_amounts[i] * booster_toHP_x_exposures[i];
-		}
-		// Check if the Hammer's power is within explosion range
-		if (power_H_x1_L > -0.5 || power_H_x1_L < -7.5) { // TODO: Play with bounds
-			return 10000000.0; // should be infinity
-		}
-		// Find the final position of the Hammer
-		double hammer_x17_L = hammer_x0virtual_L;
-		for (int i = 0; i < 12; i++) {
-			hammer_x17_L += booster_amounts[i] * booster_x_Hrange_virtual_exposure[i];
-		}
-		// Compute the Error
-		double error = abs(hammer_x17_L - target_x_L);
-		return error;
-	}
-
-	double debug_objective(
-		double* booster_toHP_x_exposures,				// To check if the Hammer's power is in range
-		std::vector<unsigned short>& booster_amounts,	// To check if the Hammer's power is in range
-		double power_H_x1i_L,							// To check if the Hammer's power is in range
-		double* booster_x_Hrange_virtual_exposure,		// To compute Hammer's final position
-		double hammer_x0virtual_L,						// Hammer's virtual initial position
-		double target_x_L								// To minimize
-	) {
-		// Check if this will place the hammer's power within range
-		// Position of hammer's power with current boosters:
-		double power_H_x1_L = power_H_x1i_L;
-		for (int i = 0; i < 12; i++) {
-			power_H_x1_L += booster_amounts[i] * booster_toHP_x_exposures[i];
-		}
-		// Check if the Hammer's power is within explosion range
-		if (power_H_x1_L > -0.5 || power_H_x1_L < -7.5) { // TODO: Play with bounds
-			// return invalid
-			// std::cout << "  Hammer's power is out of range/ahead of it" << std::endl; // Penalty funciton
-			return 10000000.0; // should be infinity
-		}
-		// else
-		std::cout << "  Hammer's Power x position (local): " << power_H_x1_L << std::endl;
-		std::cout << "  Hammer's Power x position (global): " << power_H_x1_L + center << std::endl;
-		// Find the final position of the Hammer
-		double hammer_x17_L = hammer_x0virtual_L;
-		for (int i = 0; i < 12; i++) {
-			hammer_x17_L += booster_amounts[i] * booster_x_Hrange_virtual_exposure[i];
-		}
-		std::cout << "  Hammer at 17gt x position (local): " << hammer_x17_L << std::endl;
-		std::cout << "  Hammer at 17gt x position (global): " << hammer_x17_L + center << std::endl;
-		// Compute the Error
-		double error = abs(hammer_x17_L - target_x_L);
-		return error;
-	}
-}
-
-namespace arrow {
-
-	double arrow_eye = 0.12999999523162842;
-	double gravity = -0.05f;
-	double drag = 0.99f;
-
-	void compute_booster_to_power_x_exposure(double power_x0, double* booster_x_values_G, double* booster_to_power_x_exposures) {
-		std::cout << "Booster to Arrows's Power Exposure: " << std::endl;
-		for (int i = 0; i < 12; i++) {
-			double distance = power_x0 - booster_x_values_G[i];
-			double f = (1.0 - distance / 8.0) * 1.0 / distance; // Just to keep correct calculations TODO: simplify
-			booster_to_power_x_exposures[i] = distance * f;			// Output
-
-			std::cout << "  booster[" << i << "] (blocks/tick): " << booster_to_power_x_exposures[i] << std::endl;
-		}
-		return;
-	}
-
-	void compute_arrow_x17gt_L_map(double* arrow_x17_map, double* arrow_u17_map, double power_A_amount) {
-		// double x_min = -7.5, x_max = -0.5, step = 0.05;
-		// double power_x_arr[141];
-		// for (int i = 0; i <= 140; ++i) { power_x_arr[i] = x_min + i * step; }
-		// for (int i = 0; i <= 140; ++i) { std::cout << "power_loc_arr[" << i << "] = " << power_x_arr[i] << std::endl; }
-		
-		double dy_squared = arrow_eye * arrow_eye;
-		for (int i = 0; i <= 140; i++) {
-			double dx = -7.5 + i * 0.05;
-			double distance = std::sqrt(dx * dx + dy_squared);
-			double f = (1.0 - distance / 8.0);
-			double f0 = f;
-
-			// elaborate way to compute initial velocity, similar to game
-			for (int j = 1; j < power_A_amount; j++) { f0 += f; }
-			
-			// freefall
-			double x = 0.0;		// initial local position of the arrow
-			double v = f0;		// initial velocity of the arrow
-			for (int j = 0; j < 17; j++) {
-				x += v;
-				v *= drag;
-			}
-			arrow_x17_map[i] = x;
-			arrow_u17_map[i] = v;
-
-			//std::cout << dx << ", " << arrow_u17_map[i] << std::endl;
-		}
-		return;
-	}
-
-	double compute_objective(
-		double* booster_toAP_x_exposures,			// To check if the Hammer's power is in range
-		unsigned short int* booster_amounts,		// To check if the Hammer's power is in range
-		double power_A_x1i_L,						// To check if the Hammer's power is in range
-		double* arrow_x17_map,	
-		double target_x_L							// To minimize
-	) {
-		// Check if this will place the hammer's power within range
-		// Position of hammer's power with current boosters:
-		double power_A_x1_L = power_A_x1i_L;
-		for (int i = 0; i < 12; i++) {
-			power_A_x1_L += booster_amounts[i] * booster_toAP_x_exposures[i];
-		}
-		// Check if the Hammer's power is within explosion range
-		if (power_A_x1_L > -1 || power_A_x1_L < -7.5) { // TODO: Play with bounds
-			return 10000000.0; // should be infinity
-		}
-		
-		// Map Lookup
-		// Find the final position of the Hammer
-		int lower_index = static_cast<int>((power_A_x1_L - -7.5) / 0.05);
-		int upper_index = lower_index + 1;
-
-		// Fetch corresponding values from the map
-		double lower_value = arrow_x17_map[lower_index];
-		double upper_value = arrow_x17_map[upper_index];
-
-		// Linear interpolation
-		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
-		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
-
-		// Compute the error
-		double error = std::abs(arrow_x17_L - target_x_L);
-		return error;
-	}
-
-	double debug_objective(
-		double* booster_toAP_x_exposures,				// To check if the Hammer's power is in range
-		std::vector<unsigned short>& booster_amounts,	// To check if the Hammer's power is in range
-		double power_A_x1i_L,							// To check if the Hammer's power is in range
-		double* arrow_x17_map,
-		double target_x_L								// To minimize
-	) {
-		// Check if this will place the hammer's power within range
-		// Position of hammer's power with current boosters:
-		double power_A_x1_L = power_A_x1i_L;
-		for (int i = 0; i < 12; i++) {
-			power_A_x1_L += booster_amounts[i] * booster_toAP_x_exposures[i];
-		}
-		// Check if the Hammer's power is within explosion range
-		if (power_A_x1_L > -1 || power_A_x1_L < -7.5) { // TODO: Play with bounds
-			return 10000000.0; // should be infinity
-		}
-
-		// Arrow's Power initial position
-		std::cout << "  Arrow's Power x position (local): " << power_A_x1_L << std::endl;
-		std::cout << "  Arrow's Power x position (global): " << power_A_x1_L + center << std::endl;
-
-		// Map Lookup
-		// Find the final position of the Hammer
-		int lower_index = static_cast<int>((power_A_x1_L - -7.5) / 0.05);
-		int upper_index = lower_index + 1;
-
-		// Fetch corresponding values from the map
-		double lower_value = arrow_x17_map[lower_index];
-		double upper_value = arrow_x17_map[upper_index];
-
-		// Linear interpolation
-		double fraction = (power_A_x1_L - (-7.5 + lower_index * 0.05)) / 0.05;
-		double arrow_x17_L = lower_value + fraction * (upper_value - lower_value);
-		std::cout << "  Arrow at 17gt x position (local): " << arrow_x17_L << std::endl;
-		std::cout << "  Arrow at 17gt x position (global): " << arrow_x17_L + center << std::endl;
-
-		// Compute the error
-		double error = std::abs(arrow_x17_L - target_x_L);
-		return error;
-	}
-}
-
+const int ratio_size = 13;
 class Tnt {
 public:
-	double x = 0.0, y = 0.0, z = 0.0;
-	double u = 0.0, v = 0.0, w = 0.0;
-	unsigned int amount = 1;
+    double x = 0.0, y = 0.0, z = 0.0;
+    double u = 0.0, v = 0.0, w = 0.0;
+    unsigned int amount = 1;
 
-	static const double explosion_height, gravity, drag;
+    static const double explosion_height, gravity, drag;
+    static const double distance(const Tnt& a, const Tnt& b) {
+        double dx = a.x - b.x;
+        double dy = a.y - b.y;
+        double dz = a.z - b.z;
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    static const std::vector<double> distances_dx_dy_dz(const Tnt& from, const Tnt& to) {
+        
+        double dx = to.x - from.x;
+        double dy = to.y - from.y;
+        double dz = to.z - from.z;
+        std::vector<double> distances = { dx, dy, dz };
+        return distances;
+    }
+    static const void print_distances(const Tnt& from, const Tnt& to, std::string name = "") {
+        std::vector<double> distances = distances_dx_dy_dz(from, to);
+        std::string space = "";
+        if (name != "") {
+            std::cout << name << std::endl;
+            space = "\t";
+        }
+        std::cout << space + "dx: " << distances[0] << std::endl;
+        std::cout << space + "dy: " << distances[1] << std::endl;
+        std::cout << space + "dz: " << distances[2] << std::endl;
+    }
 
-	Tnt(const std::string& attributes, unsigned int explosivePower = 1.0) : amount(explosivePower) {
-		std::istringstream stream(attributes);
-		stream >> x >> y >> z >> u >> v >> w;
-	};
+    Tnt() = default;
 
-	void explosion(Tnt source, double exposure = 1.0) {
-		double dx = x - source.x;
-		double dy = y - (source.y + explosion_height);
-		double dz = z - source.z;
-		double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-		double f = (1.0 - distance / 8.0) * 1.0 / distance * source.amount * exposure;
+    Tnt(const std::string& attributes, unsigned int explosivePower = 1.0) : amount(explosivePower) {
+        std::istringstream stream(attributes);
+        stream >> x >> y >> z >> u >> v >> w;
+    };
 
-		u += f * dx;
-		v += f * dy;
-		w += f * dz;
-	}
+    Tnt(double x, double y, double z, double u = 0.0, double v = 0.0, double w = 0.0, unsigned int explosivePower = 1.0) : x(x), y(y), z(z), u(u), v(v), w(w), amount(explosivePower) {};
 
-	void swing(Tnt source) {
-		Tnt origin(source);
-		std::vector<std::vector<double>> locations;
-		double dx, dy, dz, distance;
-		float f;
-		for (int i = 0; i < source.amount; i++) {
-			Tnt next = origin;
-			next.freefall(1);
-			if (next.y > 254.0199999809265) { next.y = 254.0199999809265; }
-			std::vector<double> loc(3);
-			loc[0] = next.x;
-			loc[1] = next.y;
-			loc[2] = next.z;
-			locations.push_back(loc);
-			dx = origin.x - locations[i][0], dy = origin.y - locations[i][1], dz = origin.z - locations[i][2];
-			distance = sqrt(dx * dx + dy * dy + dz * dz);
-			if (distance > 8.0 || distance == 0.0) {
-				continue;
-			}
-			f = (1.0 - distance / 8.0) * 1.0 / distance;
-			origin.u += dx * f;
-			origin.v += dy * f;
-			origin.w += dz * f;
-		}
+    void explosion(Tnt source, double exposure = 1.0) {
+        double dx = x - source.x;
+        double dy = y - (source.y + explosion_height); // double dy = y - source.y; y-(source.y + explosion_height) 
+        double dz = z - source.z;
+        double distance = std::sqrt(dx * dx + dy * dy + dz * dz); // float
 
-		for (int i = 0; i < locations.size(); i++) {
-			std::cout << "x: " << locations[i][0] << " y: " << locations[i][1] << " z: " << locations[i][2] << std::endl;
-		}
-	}
+        if (distance > 8.0 || distance == 0.0) {
+            return;
+        }
+        double f = (-1.0 / 8.0 + 1.0 / distance) * source.amount * exposure;
 
-	void freefall(int ticks) {
-		// print(" 0 ");
-		for (int i = 0; i < ticks; i++) {
-			v += Tnt::gravity;
+        dy = y - (source.y + explosion_height);
+        u += f * dx;
+        v += f * dy;
+        w += f * dz;
+    }
 
-			x += u;
-			y += v;
-			z += w;
-			// print(" " + std::to_string(i + 1) + " ");
-			u *= Tnt::drag;
-			v *= Tnt::drag;
-			w *= Tnt::drag;
-		}
-	}
+    void swing(Tnt source) {
+        Tnt origin(source);
+        std::vector<std::vector<double>> locations(source.amount);
+        double dx, dy, dz;
+        float distance;
+        double f;
+        for (int i = 0; i < source.amount; i++) {
+            Tnt next = origin;
+            next.freefall(1);
+            if (next.y > 254.0199999809265) { next.y = 254.0199999809265; }
+            std::vector<double> loc(3);
+            loc[0] = next.x;
+            loc[1] = next.y;
+            loc[2] = next.z;
+            locations[i] = loc;
+            dx = origin.x - locations[i][0], dy = origin.y - locations[i][1], dz = origin.z - locations[i][2];
+            distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (distance > 8.0 || distance == 0.0) {
+                continue;
+            }
+            f = -1.0 / 8.0 + 1.0 / distance;
+            origin.u += dx * f;
+            origin.v += dy * f;
+            origin.w += dz * f;
+        }
 
-	std::vector<double> getVel() {
-		return { u, v, w };
-	}
+        for (int i = 0; i < locations.size(); i++) {
+            Tnt source(locations[i][0], locations[i][1], locations[i][2]);
+            //source.print("Source[" + std::to_string(i) + "]: ");
+            this->explosion(source);
+        }
+    }
 
-	void print(std::string str = "") {
-		std::cout << str << "x: " << x << "\ty: " << y << "\tz: " << z << "\t| u: " << u << "\tv: " << v << "\tw: " << w << std::endl;
-	}
+    void freefall(int ticks) {
+        // print(" 0 ");
+        for (int i = 0; i < ticks; i++) {
+            v += Tnt::gravity;
+
+            x += u;
+            y += v;
+            z += w;
+            // print(" " + std::to_string(i + 1) + " ");
+            u *= Tnt::drag;
+            v *= Tnt::drag;
+            w *= Tnt::drag;
+        }
+    }
+    void freefall_print(int ticks, std::string str = "") {
+        print(str + " 0 ");
+        for (int i = 0; i < ticks; i++) {
+            v += Tnt::gravity;
+
+            x += u;
+            y += v;
+            z += w;
+            print(str + " " + std::to_string(i + 1) + " ");
+            u *= Tnt::drag;
+            v *= Tnt::drag;
+            w *= Tnt::drag;
+        }
+    }
+
+    std::vector<double> getVel() {
+        return { u, v, w };
+    }
+
+    void print(std::string str = "") {
+        std::cout << str << "x: " << x << "\ty: " << y << "\tz: " << z << "\t| u: " << u << "\tv: " << v << "\tw: " << w << std::endl;
+    }
+
+    void printPos(std::string str = "") {
+        std::cout << str << "x: " << x << "\ty: " << y << "\tz: " << z << std::endl;
+    }
 };
 // Define static const members outside the class
 const double Tnt::explosion_height = 0.061250001192092896;
-const double Tnt::gravity = -0.04;
-const double Tnt::drag = 0.98;
+const double Tnt::gravity = -0.04; // -0.04f
+const double Tnt::drag = 0.98; //0.98f
+
+// Hash function for the vector
+struct VectorHash {
+    std::size_t operator()(const std::vector<int>& vec) const {
+        std::size_t seed = 0;
+        for (int num : vec) {
+            seed ^= std::hash<int>()(num) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
+
+bool generateNextPermutation(short int currentArray[], const short int startArray[], const short int finalArray[]) {
+    size_t i = ratio_size;
+
+    while (i > 0) {
+        --i;
+        if (currentArray[i] < finalArray[i]) {
+            ++currentArray[i];
+            for (size_t j = i + 1; j < ratio_size; ++j) {
+                currentArray[j] = startArray[j]; // Reset subsequent values to their start
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+double fastff(double vel) {
+    double start = 253.97999998182058;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    vel *= Tnt::drag;
+    vel += Tnt::gravity;
+    start += vel;
+    return start;
+}
+
+std::mutex output_mutex;
+double global_best_value = std::numeric_limits<double>::max(); // Start with the worst possible error
+
+double min_height, max_height;
+unsigned int final_hammer_amount;
+
+void process_range(int threadNum, const std::vector<int>& assigned_powers) {
+    // ---------------- config ----------------
+    // Per-entity target heights (customize these)
+    const double target_y_sand = -62.5;
+    const double target_y_srh = -62.5;
+    const double target_y_hr = -62.9;
+
+    // Fraction window for z
+    const double frac_lo = 0.39, frac_hi = 0.61;
+    // How close "same decimal" must be (tune this)
+    const double frac_match_eps = 1e-6;
+
+    // These bounds/ranges still govern x/z search; we only parallelize by power.
+    const int n_pow_min = 40, n_pow_max = 120;
+
+    const double x_min_sand = -129092.5, x_max_sand = -129090.5;
+    const double x_min_srh = -129102.5, x_max_srh = -129100.5;
+    const double x_min_hr = -129112.5, x_max_hr = -129110.5;
+
+    const double z0_sand = 67098.50999999046;
+    const double z0_srh = 67098.50999999046;
+    const double z0_hr = 67098.50999999046;
+
+    const double Z_STEP = 1.0 / 16.0;
+    const int Z_WINDOW_BLOCKS_SAND = 2;
+    const int Z_WINDOW_BLOCKS_SRH = 2;
+    const int Z_WINDOW_BLOCKS_HR = 2;
+
+    const int booster_amount = 40;
+
+    const double x_tol = 1e-6;
+    const int max_bisect_iters = 60;
+
+    const double power_y = -63.0; // "above power" means final y > -63.0
+
+    const char* POWER_STR = "-129115.50999999046 -63.0 67096.50999999046";
+
+    const double SAND_X0 = -129092.49000000954, SAND_Y0 = -40.980000019073486;
+    const double SRH_X0 = -129102.49000000954, SRH_Y0 = -40.980000019073486;
+    const double HREV_X0 = -129112.49000000954, HREV_Y0 = -40.980000019073486;
+
+    const double B_SAND_X0 = -129091.49000000954, B_Y0 = -40.980000019073486;
+    const double B_SRH_X0 = -129100.64497978869;
+    const double B_HR_X0 = -129110.67090365867;
+
+    auto frac = [](double z) { return fabs(z - floor(z)); };
+
+    auto freefall_trace = [](Tnt& e, int ticks, std::vector<std::pair<double, double>>& out) {
+        for (int i = 0; i < ticks; ++i) {
+            e.v += Tnt::gravity;
+            e.x += e.u;
+            e.y += e.v;
+            e.z += e.w;
+            out.emplace_back(e.z, e.y);
+            e.u *= Tnt::drag;
+            e.v *= Tnt::drag;
+            e.w *= Tnt::drag;
+        }
+        };
+
+    // Simulate ONE entity end-to-end (booster -> 11 ticks -> power -> final ticks)
+    auto simulate_entity = [&](int entity_id, double booster_x, double z_snap, int n_pow, Tnt& out_entity) {
+        Tnt power(POWER_STR);
+
+        Tnt sand(SAND_X0, SAND_Y0, z_snap);
+        Tnt srh(SRH_X0, SRH_Y0, z_snap);
+        Tnt hrev(HREV_X0, HREV_Y0, z_snap);
+
+        Tnt b_sand(B_SAND_X0, B_Y0, z_snap);
+        Tnt b_srh(B_SRH_X0, B_Y0, z_snap);
+        Tnt b_hr(B_HR_X0, B_Y0, z_snap);
+        b_sand.amount = b_srh.amount = b_hr.amount = booster_amount;
+
+        if (entity_id == 0) { b_sand.x = booster_x; sand.explosion(b_sand); }
+        else if (entity_id == 1) { b_srh.x = booster_x; srh.explosion(b_srh); }
+        else { b_hr.x = booster_x; hrev.explosion(b_hr); }
+
+        // "Shot out" then coast
+        sand.freefall(11);
+        srh.freefall(11);
+        hrev.freefall(11);
+
+        // Snap to power x and zero u before power explosion
+        sand.x = -129115.50999999046; sand.u = 0.0;
+        srh.x = -129115.50999999046; srh.u = 0.0;
+        hrev.x = -129115.50999999046; hrev.u = 0.0;
+
+        power.amount = n_pow;
+        sand.explosion(power);
+        srh.explosion(power);
+        hrev.explosion(power);
+
+        // Final ticks
+        sand.freefall(5);
+        srh.freefall(6);
+        hrev.freefall(7);
+
+        if (entity_id == 0) out_entity = sand;
+        else if (entity_id == 1) out_entity = srh;
+        else out_entity = hrev;
+        };
+
+    // Simulate ALL THREE with traces (booster -> 11 -> power -> final ticks)
+    auto simulate_full_chain_with_trace = [&](
+        int n_pow,
+        double x_sand, double z_sand,
+        double x_srh, double z_srh,
+        double x_hr, double z_hr,
+        Tnt& sand_out, Tnt& srh_out, Tnt& hrev_out,
+        Tnt& b_sand_out, Tnt& b_srh_out, Tnt& b_hr_out,
+        std::vector<std::pair<double, double>>& sand_path,
+        std::vector<std::pair<double, double>>& srh_path,
+        std::vector<std::pair<double, double>>& hrev_path)
+        {
+            Tnt power(POWER_STR);
+
+            Tnt sand(SAND_X0, SAND_Y0, z_sand);
+            Tnt srh(SRH_X0, SRH_Y0, z_srh);
+            Tnt hrev(HREV_X0, HREV_Y0, z_hr);
+
+            Tnt b_sand(B_SAND_X0, B_Y0, z_sand);
+            Tnt b_srh(B_SRH_X0, B_Y0, z_srh);
+            Tnt b_hr(B_HR_X0, B_Y0, z_hr);
+            b_sand.amount = b_srh.amount = b_hr.amount = booster_amount;
+
+            b_sand.x = x_sand;
+            b_srh.x = x_srh;
+            b_hr.x = x_hr;
+
+            // Booster explosions ("shot out")
+            sand.explosion(b_sand);
+            srh.explosion(b_srh);
+            hrev.explosion(b_hr);
+
+            // 11 ticks coasting, capture traces
+            freefall_trace(sand, 11, sand_path);
+            freefall_trace(srh, 11, srh_path);
+            freefall_trace(hrev, 11, hrev_path);
+
+            // Snap to power line and zero horizontal u
+            sand.x = -129115.50999999046; sand.u = 0.0;
+            srh.x = -129115.50999999046; srh.u = 0.0;
+            hrev.x = -129115.50999999046; hrev.u = 0.0;
+
+            // Apply power
+            power.amount = n_pow;
+            sand.explosion(power);
+            srh.explosion(power);
+            hrev.explosion(power);
+
+            // Final ticks and traces
+            freefall_trace(sand, 5, sand_path);
+            freefall_trace(srh, 6, srh_path);
+            freefall_trace(hrev, 7, hrev_path);
+
+            sand_out = sand; srh_out = srh; hrev_out = hrev;
+            b_sand_out = b_sand; b_srh_out = b_srh; b_hr_out = b_hr;
+        };
+
+    // Final y helper for root finding against a target
+    auto final_y_entity = [&](int entity_id, double booster_x, double z_snap, int n_pow) -> double {
+        Tnt out_e;
+        simulate_entity(entity_id, booster_x, z_snap, n_pow, out_e);
+        return out_e.y;
+        };
+
+    // Objective for bisection: final_y - target_y
+    auto f_eval = [&](int entity_id, double x, double z_snap, int n_pow, double target_y) -> double {
+        return final_y_entity(entity_id, x, z_snap, n_pow) - target_y;
+        };
+
+    // Find an x that yields final y below target_y; if entire interval is below, pick the endpoint
+    // whose final y is closest to target from below (near-but-under behavior).
+    auto solve_booster_x_below = [&](
+        int entity_id,
+        double x_min, double x_max,
+        double z_snap,
+        int n_pow,
+        double target_y,
+        double& x_star, double& y_star,
+        std::string& reason) -> bool
+        {
+            double f_lo = f_eval(entity_id, x_min, z_snap, n_pow, target_y);
+            double f_hi = f_eval(entity_id, x_max, z_snap, n_pow, target_y);
+
+            if (f_lo >= 0.0 && f_hi >= 0.0) {
+                reason = "no x gives final y below target";
+                return false;
+            }
+            if (f_lo < 0.0 && f_hi < 0.0) {
+                double y_lo = final_y_entity(entity_id, x_min, z_snap, n_pow);
+                double y_hi = final_y_entity(entity_id, x_max, z_snap, n_pow);
+                if (y_lo > y_hi) { x_star = x_min; y_star = y_lo; }
+                else { x_star = x_max; y_star = y_hi; }
+                reason = "entire x-range below target; chose endpoint closest to target (near but under)";
+                return true;
+            }
+
+            double lo = x_min, hi = x_max;
+            double flo = f_lo, fhi = f_hi;
+            if (!(flo < 0.0 && fhi >= 0.0)) {
+                std::swap(lo, hi);
+                std::swap(flo, fhi);
+            }
+
+            int it = 0;
+            while ((hi - lo) > x_tol && it < max_bisect_iters) {
+                double mid = 0.5 * (lo + hi);
+                double fmid = f_eval(entity_id, mid, z_snap, n_pow, target_y);
+                if (fmid < 0.0) { lo = mid; flo = fmid; }
+                else { hi = mid; fhi = fmid; }
+                ++it;
+            }
+
+            x_star = lo;
+            y_star = final_y_entity(entity_id, x_star, z_snap, n_pow);
+            reason.clear();
+            return true;
+        };
+
+    auto meets_constraints = [&](const Tnt& e, double target_y) -> bool {
+        double fz = frac(e.z);
+        return (e.y < target_y) && (e.y > power_y) && (fz >= frac_lo) && (fz <= frac_hi);
+        };
+
+    // -------- logging helpers (clean formatting) --------
+    auto header = [](const std::string& title) {
+        std::cout << "\n========== " << title << " ==========\n";
+        };
+    auto kv = [](const std::string& k, double v) {
+        std::cout << "  " << std::left << std::setw(16) << k << ": " << std::setprecision(15) << v << "\n";
+        };
+    auto kvs = [](const std::string& k, const std::string& v) {
+        std::cout << "  " << std::left << std::setw(16) << k << ": " << v << "\n";
+        };
+    auto print_entity = [&](const char* name, const Tnt& e) {
+        std::cout << "  [" << name << "] y=" << std::setprecision(15) << e.y
+            << "  z=" << e.z
+            << "  frac=" << frac(e.z)
+            << "  block=" << (long)std::floor(e.z) << "\n";
+        };
+    auto print_paths_csv = [&](const std::string& label,
+        const std::vector<std::pair<double, double>>& path) {
+            std::cout << label << " (tick,z,y)\n";
+            for (size_t i = 0; i < path.size(); ++i) {
+                std::cout << path[i].first << "," << path[i].second << "\n";
+            }
+        };
+
+    std::cout << "Thread[" << threadNum << "] started with {";
+    for (size_t i = 0; i < assigned_powers.size(); i++) {
+        std::cout << assigned_powers[i];
+        if (i + 1 < assigned_powers.size()) std::cout << ", ";
+    }
+    std::cout << "}\n";
+
+    for (int n_pow : assigned_powers) {
+        bool any_chain = false;
+        header("thread " + std::to_string(threadNum) + " n_pow=" + std::to_string(n_pow));
+
+        // === Stage 1: SAND search ===
+        for (int iz_s = -16 * Z_WINDOW_BLOCKS_SAND; iz_s <= 16 * Z_WINDOW_BLOCKS_SAND; ++iz_s) {
+            double z_sand = std::round((z0_sand + iz_s * Z_STEP) * 16.0) / 16.0;
+
+            double x_sand, y_sand; std::string why_sand;
+            bool ok_sand = solve_booster_x_below(0, x_min_sand, x_max_sand, z_sand, n_pow,
+                target_y_sand, x_sand, y_sand, why_sand);
+            if (!ok_sand) continue;
+
+            Tnt sand_fin;
+            simulate_entity(0, x_sand, z_sand, n_pow, sand_fin);
+            if (!meets_constraints(sand_fin, target_y_sand)) continue;
+
+            any_chain = true;
+            {
+                std::lock_guard<std::mutex> lk(output_mutex);
+                header("S-HIT");
+                kv("z_snap", z_sand);
+                kv("booster_x", x_sand);
+                print_entity("SAND", sand_fin);
+            }
+
+            // === Stage 2: SR_H search, continuing with THIS SAND ===
+            for (int iz_r = -16 * Z_WINDOW_BLOCKS_SRH; iz_r <= 16 * Z_WINDOW_BLOCKS_SRH; ++iz_r) {
+                double z_srh = std::round((z0_srh + iz_r * Z_STEP) * 16.0) / 16.0;
+
+                double x_srh, y_srh; std::string why_srh;
+                bool ok_srh = solve_booster_x_below(1, x_min_srh, x_max_srh, z_srh, n_pow,
+                    target_y_srh, x_srh, y_srh, why_srh);
+                if (!ok_srh) continue;
+
+                Tnt srh_fin;
+                simulate_entity(1, x_srh, z_srh, n_pow, srh_fin);
+                if (!meets_constraints(srh_fin, target_y_srh)) continue;
+
+                // Shared z-match gate: same block AND (almost) same fractional part
+                long bs = (long)std::floor(sand_fin.z);
+                long br = (long)std::floor(srh_fin.z);
+                double fs = frac(sand_fin.z);
+                double fr = frac(srh_fin.z);
+                bool same_block = (bs == br);
+                bool same_frac = (std::fabs(fs - fr) <= frac_match_eps);
+
+                if (!(same_block && same_frac)) {
+                    std::lock_guard<std::mutex> lk(output_mutex);
+                    header("R-REJECT (shared z mismatch)");
+                    kv("S.block", bs); kv("R.block", br);
+                    kv("S.frac", fs);  kv("R.frac", fr);
+                    kv("abs(frac diff)", std::fabs(fs - fr));
+                    continue;
+                }
+
+                {
+                    std::lock_guard<std::mutex> lk(output_mutex);
+                    header("R-HIT (shared z OK)");
+                    kvs("context", "carrying SAND solution");
+                    kv("S.z_snap", z_sand); kv("S.booster_x", x_sand);
+                    print_entity("SAND", sand_fin);
+
+                    kv("z_snap", z_srh);
+                    kv("booster_x", x_srh);
+                    print_entity("SR_H", srh_fin);
+                }
+
+                // === Stage 3: HR (with traces on success) ===
+                for (int iz_h = -16 * Z_WINDOW_BLOCKS_HR; iz_h <= 16 * Z_WINDOW_BLOCKS_HR; ++iz_h) {
+                    double z_hr = std::round((z0_hr + iz_h * Z_STEP) * 16.0) / 16.0;
+
+                    double x_hr, y_hr; std::string why_hr;
+                    bool ok_hr = solve_booster_x_below(2, x_min_hr, x_max_hr, z_hr, n_pow,
+                        target_y_hr, x_hr, y_hr, why_hr);
+                    if (!ok_hr) continue;
+
+                    Tnt hr_fin;
+                    simulate_entity(2, x_hr, z_hr, n_pow, hr_fin);
+                    if (!meets_constraints(hr_fin, target_y_hr)) continue;
+
+                    // Full chain sim with (z,y) histories for plotting
+                    Tnt sand_f, srh_f, hrev_f, b_sand_f, b_srh_f, b_hr_f;
+                    std::vector<std::pair<double, double>> sand_path, srh_path, hrev_path;
+                    sand_path.reserve(11 + 5);
+                    srh_path.reserve(11 + 6);
+                    hrev_path.reserve(11 + 7);
+
+                    simulate_full_chain_with_trace(
+                        n_pow,
+                        x_sand, z_sand,
+                        x_srh, z_srh,
+                        x_hr, z_hr,
+                        sand_f, srh_f, hrev_f,
+                        b_sand_f, b_srh_f, b_hr_f,
+                        sand_path, srh_path, hrev_path
+                    );
+
+                    std::lock_guard<std::mutex> lk(output_mutex);
+                    header("H-HIT (FULL CHAIN + PATHS)");
+                    kv("S.z_snap", z_sand); kv("S.booster_x", x_sand);
+                    kv("R.z_snap", z_srh);  kv("R.booster_x", x_srh);
+                    kv("H.z_snap", z_hr);   kv("H.booster_x", x_hr);
+
+                    std::cout << "\n-- Final Entity States --\n";
+                    print_entity("SAND", sand_f);
+                    print_entity("SR_H", srh_f);
+                    print_entity("HR", hrev_f);
+
+                    std::cout << "\n-- Booster Entities --\n";
+                    print_entity("B_SAND", b_sand_f);
+                    print_entity("B_SRH", b_srh_f);
+                    print_entity("B_HR", b_hr_f);
+
+                    std::cout << "\n-- Flight Paths (CSV) --\n";
+                    print_paths_csv("SAND_path", sand_path);
+                    print_paths_csv("SR_H_path", srh_path);
+                    print_paths_csv("HR_path", hrev_path);
+                    std::cout << "-----------------------------------------\n";
+                }
+            }
+        }
+
+        if (!any_chain) {
+            std::lock_guard<std::mutex> lk(output_mutex);
+            std::cout << "[thread " << threadNum << " n_pow=" << n_pow << "] No chains met constraints.\n";
+        }
+    }
+
+    std::cout << "Thread[" << threadNum << "] finished\n";
+}
+
+
 
 int main() {
-	/************* Output Formatting *************/
-	std::cout << std::setprecision(17);
+    std::cout << std::setprecision(17);
 
-	/* In-game Conditions (Global) */
-	//// Positions/Velocities
-	
-	unsigned short int reference_booster_amounts[12] = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}; // Reference values, Limited to Between 0-12
+    // Configure the global power range here
+    const int n_pow_min = 40;
+    const int n_pow_max = 40;
 
-	/** Hammer Input **/
-	double hammer_booster_x_values_G[12] = { 
-		-132131.78586161736, -132132.03129429705, -132132.29123018472,
-		-132132.56509943452, -132132.85226417152, -132133.1520190452,
-		-132130.91192610186, -132131.2589431057, -132131.62046530127,
-		-132131.99592300472, -132132.3846785224, -132132.78602670677
-	};
-	// State before/after afected by ratio and constant booster and amount of hammer's power amount
-	double power_H_x0_G = -132125.49000000954;	// -132125.49000000954 278.06125000119226 1008.5
-	double power_H_u0_G = 0.0;					// 0.0 13.581624504779414 9.596323735650002E-16
-	double power_H_x1i_G = -132129.0807506629;	// -132129.0807506629 316.33397374591755 1008.5
-	double power_H_u1i_G = -3.5189356402947953;	// -3.5189356402947953 37.5072692698308 -7.235323451482145E-15
-	unsigned int power_H_amount = 36;			// minimum power
-	// Computed Quantities (local)
-	double power_H_x0_L = power_H_x0_G - center_x;		// Local Starting location of the hammer
-	double power_H_x1i_L = power_H_x1i_G - center_x;	// Local Starting location of the hammer
-	double booster_toHP_x_exposures[12];				// The effect of the hammer's power's boosters to the hammer's power
-	hammer::compute_booster_to_power_x_exposure(power_H_x0_G, hammer_booster_x_values_G, booster_toHP_x_exposures);
-	double booster_x_Hrange_virtual_exposure[12];	// The inderect affect of the hammer's power's boosters onto the final position of the hammer
-	hammer::compute_booster_x_Hrange_virtual_exposure(reference_booster_amounts, booster_toHP_x_exposures, power_H_x1i_L, power_H_amount, booster_x_Hrange_virtual_exposure);
-	double hammer_x_ref_final_L = hammer::position_after_17gt_L(booster_toHP_x_exposures, reference_booster_amounts, power_H_x1i_L, power_H_amount); // Uses the reference values of {6 ... 6}
-	// Finding the hammer's virtual starting position
-	double hammer_x0virtual_L = hammer::compute_virtual_initial_position(booster_x_Hrange_virtual_exposure, hammer_x_ref_final_L);
+    unsigned int thread_count = std::max(1u, std::thread::hardware_concurrency() - 4u);
+    std::cout << "Available threads: " << thread_count << std::endl;
 
-	/** Arrow Input **/
-	double arrow_booster_x_values_G[12] = {
-		-132131.66023655233, -132131.9290798593, -132132.21242460352,
-		-132132.50970078004, -132132.82027033667, -132133.1434277247,
-		-132131.53607811127, -132131.8830685851, -132132.24456219366,
-		-132132.61998908114, -132133.00871136136, -132133.41002367114
-	};
-	// State before/after afected by ratio and constant booster and amount of arrow's power amount
-	double power_A_x0_G = -132125.49000000954;	// -132125.49000000954 278.06125000119226 1008.5
-	double power_A_u0_G = 0.0;					// 0.0 13.581624504779414 9.596323735650002E-16
-	double power_A_x1i_G = -132127.1568319435;	// -132127.1568319435 298.0187499494105 1008.5
-	double power_A_u1i_G = -1.6334952952582336;	// -1.6334952952582336 19.558349949253866 -2.5024426975051027E-15
-	unsigned int power_A_amount = 36;			// minimum power
-	// Computed Quantities (local)
-	double power_A_x0_L = power_A_x0_G - center_x;		// Local Starting location of the arrow
-	double power_A_x1i_L = power_A_x1i_G - center_x;	// Local Starting location of the arrow
-	double booster_toAP_x_exposures[12];				// The effect of the arrow's power's boosters to the arrow's power
-	arrow::compute_booster_to_power_x_exposure(power_A_x0_G, arrow_booster_x_values_G, booster_toAP_x_exposures);
-	std::cout << "Starting loc of arrow power w/out booster " << power_A_x1i_L << std::endl;
-	double arrow_x17_map[141]; // based on 36 tnt
-	double arrow_u17_map[141];
-	arrow::compute_arrow_x17gt_L_map(arrow_x17_map, arrow_u17_map, power_A_amount);
+    const int start = n_pow_min, end = n_pow_max;
+    std::vector<std::thread> threads;
+    std::vector<std::vector<int>> thread_assignments(thread_count);
 
+    int current_thread = 0;
+    for (int i = start; i <= end; i++) {
+        thread_assignments[current_thread].push_back(i);
+        current_thread = (current_thread + 1) % thread_count;
+    }
 
-	//////////////////////////////////////////////
-	/************* Optimization problem *************/
-	double target_x_L = 200.0; // we want to find hammer/arrow that is as close to x blocks away.
-	double error;
+    for (unsigned int i = 0; i < thread_count; i++) {
+        threads.emplace_back([i, &thread_assignments]() {
+            std::this_thread::sleep_for(std::chrono::seconds(1) * i * 0.05); // Add delay to stagger threads
+            process_range(i, thread_assignments[i]);
+            });
+    }
 
-	// Define the hammer and arrow objective function lambdas
-	auto hammer_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
-		unsigned short booster_amounts_array[12];
-		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
-		return hammer::compute_objective(
-			booster_toHP_x_exposures,
-			booster_amounts_array,
-			power_H_x1i_L,
-			booster_x_Hrange_virtual_exposure,
-			hammer_x0virtual_L,
-			target_x_L
-		);
-	};
-	auto arrow_objective_function = [&](const std::vector<unsigned short>& booster_amounts) {
-		unsigned short booster_amounts_array[12];
-		std::copy(booster_amounts.begin(), booster_amounts.end(), booster_amounts_array);
-		return arrow::compute_objective(
-			booster_toAP_x_exposures,
-			booster_amounts_array,
-			power_A_x1i_L,
-			arrow_x17_map,
-			target_x_L
-		);
-	};
+    for (auto& thread : threads) {
+        thread.join();
+    }
 
-	/* Initialize booster amounts */
-	std::vector<unsigned short> hammer_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
-	std::vector<unsigned short> arrow_booster_amounts = { 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6 };
-
-	//////////////////////////////////////////////
-	const double error_threshold = 1e-5; // Desired error threshold
-	int max_retries = 100; // Maximum retries to prevent infinite loops
-	int retry_count = 0;
-
-	/* Perform Simulated Annealing optimization */
-	double best_error_SA = std::numeric_limits<double>::infinity();
-	while (best_error_SA > error_threshold && retry_count < max_retries) {
-		best_error_SA = optimization::optimize_boosters_simulated_annealing(
-			hammer_objective_function,
-			hammer_booster_amounts,
-			0,                        // Lower bound
-			12,                       // Upper bound
-			1000000,                  // Max iterations
-			100000.0,                 // Initial temperature
-			0.99999                   // Cooling rate
-		);
-		retry_count++;
-	}
-	if (best_error_SA <= error_threshold) {
-		std::cout << "\nOptimal Hammer Booster Configuration Found: { ";
-		for (size_t i = 0; i < hammer_booster_amounts.size(); ++i) {
-			std::cout << hammer_booster_amounts[i] << (i < hammer_booster_amounts.size() - 1 ? ", " : " ");
-		}
-		std::cout << "}\n";
-		std::cout << "  Optimal Hammer Error: " << best_error_SA << "\n";
-
-		std::cout << "Debug Hammer: " << std::endl;
-		error = hammer::debug_objective(booster_toHP_x_exposures, hammer_booster_amounts, power_H_x1i_L, booster_x_Hrange_virtual_exposure, hammer_x0virtual_L, target_x_L);
-		std::cout << "  Error: " << error << std::endl;
-	}
-	else {
-		std::cout << "Failed to find a configuration with error < " << error_threshold << " after " << retry_count << " retries.\n";
-	}
-
-	// Reset retry counter for the arrow optimization
-	retry_count = 0;
-	/* Perform Simulated Annealing optimization */
-	double best_error_SA_arrow = std::numeric_limits<double>::infinity();
-	while (best_error_SA_arrow > error_threshold && retry_count < max_retries) {
-		best_error_SA_arrow = optimization::optimize_boosters_simulated_annealing(
-			arrow_objective_function,
-			arrow_booster_amounts,
-			0,                        // Lower bound
-			12,                       // Upper bound
-			1000000,                  // Max iterations
-			100000.0,                 // Initial temperature
-			0.99999                   // Cooling rate
-		);
-		retry_count++;
-	}
-	if (best_error_SA_arrow <= error_threshold) {
-		std::cout << "\nOptimal Arrow Booster Configuration Found: { ";
-		for (size_t i = 0; i < arrow_booster_amounts.size(); ++i) {
-			std::cout << arrow_booster_amounts[i] << (i < arrow_booster_amounts.size() - 1 ? ", " : " ");
-		}
-		std::cout << "}\n";
-		std::cout << "  Optimal Arrow Error: " << best_error_SA_arrow << "\n";
-
-		std::cout << "Debug Arrow: " << std::endl;
-		error = arrow::debug_objective(booster_toAP_x_exposures, arrow_booster_amounts, power_A_x1i_L, arrow_x17_map, target_x_L);
-		std::cout << "  Error: " << error << std::endl;
-	}
-	else {
-		std::cout << "Failed to find a configuration with error < " << error_threshold << " after " << retry_count << " retries.\n";
-	}
-	///////////////////////////////
-	// Brute Force Optimization for Hammer
-	std::vector<unsigned short> best_hammer_configuration = hammer_booster_amounts;
-	double best_hammer_error = optimization::optimize_boosters_brute_force(
-		hammer_objective_function,
-		best_hammer_configuration,
-		0,   // Lower bound
-		12   // Upper bound
-	);
-
-	std::cout << "\nBrute Force Hammer Booster Configuration Found: { ";
-	for (size_t i = 0; i < best_hammer_configuration.size(); ++i) {
-		std::cout << best_hammer_configuration[i] << (i < best_hammer_configuration.size() - 1 ? ", " : " ");
-	}
-	std::cout << "}\n";
-	std::cout << "  Optimal Hammer Error: " << best_hammer_error << "\n";
-
+    // Print results
     std::cout << "Final Best Value: " << global_best_value << std::endl;
     std::cout << "End of computation." << std::endl;
     while (true) {
 
-	std::cout << "\nBrute Force Arrow Booster Configuration Found: { ";
-	for (size_t i = 0; i < best_arrow_configuration.size(); ++i) {
-		std::cout << best_arrow_configuration[i] << (i < best_arrow_configuration.size() - 1 ? ", " : " ");
-	}
-	std::cout << "}\n";
-	std::cout << "  Optimal Arrow Error: " << best_arrow_error << "\n";
-	return 0;
+    }
+    return 0;
 }
