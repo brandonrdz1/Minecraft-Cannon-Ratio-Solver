@@ -206,17 +206,13 @@ unsigned int final_hammer_amount;
 void process_range(int threadNum, const std::vector<int>& assigned_powers) {
     // ---------------- config ----------------
     // Per-entity target heights (customize these)
-    const double target_y_sand = -62.5;
-    const double target_y_srh = -62.5;
-    const double target_y_hr = -62.9;
+    const double target_y_sand = -62.2;
+    const double target_y_srh = -62.3;
+    const double target_y_hr = -62.4;
 
     // Fraction window for z
-    const double frac_lo = 0.39, frac_hi = 0.61;
-    // How close "same decimal" must be (tune this)
-    const double frac_match_eps = 1e-6;
-
-    // These bounds/ranges still govern x/z search; we only parallelize by power.
-    const int n_pow_min = 40, n_pow_max = 120;
+    const double frac_lo = 0.49, frac_hi = 0.51;
+    const double distance_herv_threshold = 1.0;
 
     const double x_min_sand = -129092.5, x_max_sand = -129090.5;
     const double x_min_srh = -129102.5, x_max_srh = -129100.5;
@@ -231,13 +227,11 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
     const int Z_WINDOW_BLOCKS_SRH = 2;
     const int Z_WINDOW_BLOCKS_HR = 2;
 
-    const int booster_amount = 40;
-
+    const int    booster_amount = 40;
     const double x_tol = 1e-6;
-    const int max_bisect_iters = 60;
+    const int    max_bisect_iters = 60;
 
     const double power_y = -63.0; // "above power" means final y > -63.0
-
     const char* POWER_STR = "-129115.50999999046 -63.0 67096.50999999046";
 
     const double SAND_X0 = -129092.49000000954, SAND_Y0 = -40.980000019073486;
@@ -248,7 +242,38 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
     const double B_SRH_X0 = -129100.64497978869;
     const double B_HR_X0 = -129110.67090365867;
 
-    auto frac = [](double z) { return fabs(z - floor(z)); };
+    // Flight times
+	const int FALL_TICKS = 11;
+	const int SAND_FINAL_TICKS = 4;
+	const int SRH_FINAL_TICKS = 5;
+	const int HREV_FINAL_TICKS = 6;
+
+    auto frac = [](double z) { return (z - std::floor(z)); };
+
+    // -------- helpers that write to a generic ostream --------
+    auto header = [](std::ostream& os, const std::string& title) {
+        os << "\n========== " << title << " ==========\n";
+        };
+    auto kv = [](std::ostream& os, const std::string& k, double v) {
+        os << "  " << std::left << std::setw(16) << k << ": " << std::setprecision(15) << v << "\n";
+        };
+    auto kvs = [](std::ostream& os, const std::string& k, const std::string& v) {
+        os << "  " << std::left << std::setw(16) << k << ": " << v << "\n";
+        };
+    auto print_entity = [&](std::ostream& os, const char* name, const Tnt& e) {
+        os << "  [" << name 
+            << "] z=" << std::setprecision(15) << e.z
+            << "  y=" << e.y
+            << "  frac=" << frac(e.z)
+            << "  block=" << (long)std::floor(e.z) << "\n";
+        };
+    auto print_paths_csv = [&](std::ostream& os, const std::string& label,
+        const std::vector<std::pair<double, double>>& path) {
+            os << label << " (z,y)\n";
+            for (size_t i = 0; i < path.size(); ++i) {
+                os << path[i].first << "," << path[i].second << "\n";
+            }
+        };
 
     auto freefall_trace = [](Tnt& e, int ticks, std::vector<std::pair<double, double>>& out) {
         for (int i = 0; i < ticks; ++i) {
@@ -263,7 +288,7 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
         }
         };
 
-    // Simulate ONE entity end-to-end (booster -> 11 ticks -> power -> final ticks)
+    // Simulate ONE entity end-to-end (booster -> FALL_TICKS ticks -> power -> final ticks)
     auto simulate_entity = [&](int entity_id, double booster_x, double z_snap, int n_pow, Tnt& out_entity) {
         Tnt power(POWER_STR);
 
@@ -281,9 +306,9 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
         else { b_hr.x = booster_x; hrev.explosion(b_hr); }
 
         // "Shot out" then coast
-        sand.freefall(11);
-        srh.freefall(11);
-        hrev.freefall(11);
+        sand.freefall(FALL_TICKS);
+        srh.freefall(FALL_TICKS);
+        hrev.freefall(FALL_TICKS);
 
         // Snap to power x and zero u before power explosion
         sand.x = -129115.50999999046; sand.u = 0.0;
@@ -296,16 +321,16 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
         hrev.explosion(power);
 
         // Final ticks
-        sand.freefall(5);
-        srh.freefall(6);
-        hrev.freefall(7);
+        sand.freefall(SAND_FINAL_TICKS);
+        srh.freefall(SRH_FINAL_TICKS);
+        hrev.freefall(HREV_FINAL_TICKS);
 
         if (entity_id == 0) out_entity = sand;
         else if (entity_id == 1) out_entity = srh;
         else out_entity = hrev;
         };
 
-    // Simulate ALL THREE with traces (booster -> 11 -> power -> final ticks)
+    // Simulate ALL THREE with traces (booster -> FALL_TICKS -> power -> final ticks)
     auto simulate_full_chain_with_trace = [&](
         int n_pow,
         double x_sand, double z_sand,
@@ -337,10 +362,10 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
             srh.explosion(b_srh);
             hrev.explosion(b_hr);
 
-            // 11 ticks coasting, capture traces
-            freefall_trace(sand, 11, sand_path);
-            freefall_trace(srh, 11, srh_path);
-            freefall_trace(hrev, 11, hrev_path);
+            // FALL_TICKS ticks coasting, capture traces
+            freefall_trace(sand, FALL_TICKS, sand_path);
+            freefall_trace(srh, FALL_TICKS, srh_path);
+            freefall_trace(hrev, FALL_TICKS, hrev_path);
 
             // Snap to power line and zero horizontal u
             sand.x = -129115.50999999046; sand.u = 0.0;
@@ -354,9 +379,9 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
             hrev.explosion(power);
 
             // Final ticks and traces
-            freefall_trace(sand, 5, sand_path);
-            freefall_trace(srh, 6, srh_path);
-            freefall_trace(hrev, 7, hrev_path);
+            freefall_trace(sand, SAND_FINAL_TICKS, sand_path);
+            freefall_trace(srh, SRH_FINAL_TICKS, srh_path);
+            freefall_trace(hrev, HREV_FINAL_TICKS, hrev_path);
 
             sand_out = sand; srh_out = srh; hrev_out = hrev;
             b_sand_out = b_sand; b_srh_out = b_srh; b_hr_out = b_hr;
@@ -428,124 +453,75 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
         return (e.y < target_y) && (e.y > power_y) && (fz >= frac_lo) && (fz <= frac_hi);
         };
 
-    // -------- logging helpers (clean formatting) --------
-    auto header = [](const std::string& title) {
-        std::cout << "\n========== " << title << " ==========\n";
-        };
-    auto kv = [](const std::string& k, double v) {
-        std::cout << "  " << std::left << std::setw(16) << k << ": " << std::setprecision(15) << v << "\n";
-        };
-    auto kvs = [](const std::string& k, const std::string& v) {
-        std::cout << "  " << std::left << std::setw(16) << k << ": " << v << "\n";
-        };
-    auto print_entity = [&](const char* name, const Tnt& e) {
-        std::cout << "  [" << name << "] y=" << std::setprecision(15) << e.y
-            << "  z=" << e.z
-            << "  frac=" << frac(e.z)
-            << "  block=" << (long)std::floor(e.z) << "\n";
-        };
-    auto print_paths_csv = [&](const std::string& label,
-        const std::vector<std::pair<double, double>>& path) {
-            std::cout << label << " (tick,z,y)\n";
-            for (size_t i = 0; i < path.size(); ++i) {
-                std::cout << path[i].first << "," << path[i].second << "\n";
-            }
-        };
+    {
+        std::ostringstream oss;
+        oss << "Thread [" << threadNum << "] assigned powers: ";
+        for (int np : assigned_powers) {
+            oss << np << " ";
+        }
+        oss << "\n";
 
-    std::cout << "Thread[" << threadNum << "] started with {";
-    for (size_t i = 0; i < assigned_powers.size(); i++) {
-        std::cout << assigned_powers[i];
-        if (i + 1 < assigned_powers.size()) std::cout << ", ";
+        std::lock_guard<std::mutex> lk(output_mutex);
+        std::cout << oss.str();
     }
-    std::cout << "}\n";
+	// Pause a moment to stagger thread starts (helps with console output readability)
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
+    // =================== MAIN SEARCH ===================
     for (int n_pow : assigned_powers) {
-        bool any_chain = false;
-        header("thread " + std::to_string(threadNum) + " n_pow=" + std::to_string(n_pow));
+        {
+            std::ostringstream oss;
+            oss << "Thread [" << threadNum << "] processing n_pow = " << n_pow << "\n";
+            std::lock_guard<std::mutex> lk(output_mutex);
+            std::cout << oss.str();
+        }
 
-        // === Stage 1: SAND search ===
+        // Stage 1: SAND
         for (int iz_s = -16 * Z_WINDOW_BLOCKS_SAND; iz_s <= 16 * Z_WINDOW_BLOCKS_SAND; ++iz_s) {
             double z_sand = std::round((z0_sand + iz_s * Z_STEP) * 16.0) / 16.0;
-
             double x_sand, y_sand; std::string why_sand;
-            bool ok_sand = solve_booster_x_below(0, x_min_sand, x_max_sand, z_sand, n_pow,
-                target_y_sand, x_sand, y_sand, why_sand);
-            if (!ok_sand) continue;
+            if (!solve_booster_x_below(0, x_min_sand, x_max_sand, z_sand, n_pow,
+                target_y_sand, x_sand, y_sand, why_sand))
+                continue;
 
             Tnt sand_fin;
             simulate_entity(0, x_sand, z_sand, n_pow, sand_fin);
             if (!meets_constraints(sand_fin, target_y_sand)) continue;
 
-            any_chain = true;
-            {
-                std::lock_guard<std::mutex> lk(output_mutex);
-                header("S-HIT");
-                kv("z_snap", z_sand);
-                kv("booster_x", x_sand);
-                print_entity("SAND", sand_fin);
-            }
-
-            // === Stage 2: SR_H search, continuing with THIS SAND ===
+            // Stage 2: SR_H (must share z block with SAND)
             for (int iz_r = -16 * Z_WINDOW_BLOCKS_SRH; iz_r <= 16 * Z_WINDOW_BLOCKS_SRH; ++iz_r) {
                 double z_srh = std::round((z0_srh + iz_r * Z_STEP) * 16.0) / 16.0;
-
                 double x_srh, y_srh; std::string why_srh;
-                bool ok_srh = solve_booster_x_below(1, x_min_srh, x_max_srh, z_srh, n_pow,
-                    target_y_srh, x_srh, y_srh, why_srh);
-                if (!ok_srh) continue;
+                if (!solve_booster_x_below(1, x_min_srh, x_max_srh, z_srh, n_pow,
+                    target_y_srh, x_srh, y_srh, why_srh))
+                    continue;
 
                 Tnt srh_fin;
                 simulate_entity(1, x_srh, z_srh, n_pow, srh_fin);
                 if (!meets_constraints(srh_fin, target_y_srh)) continue;
 
-                // Shared z-match gate: same block AND (almost) same fractional part
                 long bs = (long)std::floor(sand_fin.z);
                 long br = (long)std::floor(srh_fin.z);
-                double fs = frac(sand_fin.z);
-                double fr = frac(srh_fin.z);
-                bool same_block = (bs == br);
-                bool same_frac = (std::fabs(fs - fr) <= frac_match_eps);
+                if (bs != br) continue;
 
-                if (!(same_block && same_frac)) {
-                    std::lock_guard<std::mutex> lk(output_mutex);
-                    header("R-REJECT (shared z mismatch)");
-                    kv("S.block", bs); kv("R.block", br);
-                    kv("S.frac", fs);  kv("R.frac", fr);
-                    kv("abs(frac diff)", std::fabs(fs - fr));
-                    continue;
-                }
-
-                {
-                    std::lock_guard<std::mutex> lk(output_mutex);
-                    header("R-HIT (shared z OK)");
-                    kvs("context", "carrying SAND solution");
-                    kv("S.z_snap", z_sand); kv("S.booster_x", x_sand);
-                    print_entity("SAND", sand_fin);
-
-                    kv("z_snap", z_srh);
-                    kv("booster_x", x_srh);
-                    print_entity("SR_H", srh_fin);
-                }
-
-                // === Stage 3: HR (with traces on success) ===
+                // Stage 3: HR (final)
                 for (int iz_h = -16 * Z_WINDOW_BLOCKS_HR; iz_h <= 16 * Z_WINDOW_BLOCKS_HR; ++iz_h) {
                     double z_hr = std::round((z0_hr + iz_h * Z_STEP) * 16.0) / 16.0;
-
                     double x_hr, y_hr; std::string why_hr;
-                    bool ok_hr = solve_booster_x_below(2, x_min_hr, x_max_hr, z_hr, n_pow,
-                        target_y_hr, x_hr, y_hr, why_hr);
-                    if (!ok_hr) continue;
+                    if (!solve_booster_x_below(2, x_min_hr, x_max_hr, z_hr, n_pow,
+                        target_y_hr, x_hr, y_hr, why_hr))
+                        continue;
 
                     Tnt hr_fin;
                     simulate_entity(2, x_hr, z_hr, n_pow, hr_fin);
-                    if (!meets_constraints(hr_fin, target_y_hr)) continue;
+                    if (Tnt::distance(hr_fin,srh_fin) > distance_herv_threshold) continue;
 
-                    // Full chain sim with (z,y) histories for plotting
+                    // Full chain found — gather traces and print ONCE atomically
                     Tnt sand_f, srh_f, hrev_f, b_sand_f, b_srh_f, b_hr_f;
                     std::vector<std::pair<double, double>> sand_path, srh_path, hrev_path;
-                    sand_path.reserve(11 + 5);
-                    srh_path.reserve(11 + 6);
-                    hrev_path.reserve(11 + 7);
+                    sand_path.reserve(FALL_TICKS + SAND_FINAL_TICKS);
+                    srh_path.reserve(FALL_TICKS + SRH_FINAL_TICKS);
+                    hrev_path.reserve(FALL_TICKS + HREV_FINAL_TICKS);
 
                     simulate_full_chain_with_trace(
                         n_pow,
@@ -557,48 +533,59 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
                         sand_path, srh_path, hrev_path
                     );
 
-                    std::lock_guard<std::mutex> lk(output_mutex);
-                    header("H-HIT (FULL CHAIN + PATHS)");
-                    kv("S.z_snap", z_sand); kv("S.booster_x", x_sand);
-                    kv("R.z_snap", z_srh);  kv("R.booster_x", x_srh);
-                    kv("H.z_snap", z_hr);   kv("H.booster_x", x_hr);
+                    std::ostringstream oss;
+                    header(oss, "H-HIT (FULL CHAIN + PATHS)");
+                    kv(oss, "n_pow", n_pow);
+                    kv(oss, "S.z_snap", z_sand); kv(oss, "S.booster_x", x_sand);
+                    kv(oss, "R.z_snap", z_srh);  kv(oss, "R.booster_x", x_srh);
+                    kv(oss, "H.z_snap", z_hr);   kv(oss, "H.booster_x", x_hr);
 
-                    std::cout << "\n-- Final Entity States --\n";
-                    print_entity("SAND", sand_f);
-                    print_entity("SR_H", srh_f);
-                    print_entity("HR", hrev_f);
+                    oss << "\n-- Final Entity States --\n";
+                    print_entity(oss, "SAND", sand_f);
+                    print_entity(oss, "SR_H", srh_f);
+                    print_entity(oss, "HR", hrev_f);
 
-                    std::cout << "\n-- Booster Entities --\n";
-                    print_entity("B_SAND", b_sand_f);
-                    print_entity("B_SRH", b_srh_f);
-                    print_entity("B_HR", b_hr_f);
+                    oss << "\n-- Booster Entities --\n";
+                    print_entity(oss, "B_SAND", b_sand_f);
+                    print_entity(oss, "B_SRH", b_srh_f);
+                    print_entity(oss, "B_HR", b_hr_f);
 
-                    std::cout << "\n-- Flight Paths (CSV) --\n";
-                    print_paths_csv("SAND_path", sand_path);
-                    print_paths_csv("SR_H_path", srh_path);
-                    print_paths_csv("HR_path", hrev_path);
-                    std::cout << "-----------------------------------------\n";
+					oss << "\n-- Trajectory Data --\n";
+                    oss << "  Distance Between Entities:" 
+						<< "\n    (S-R): " << Tnt::distance(sand_f, srh_f)
+						<< "\n    (S-H): " << Tnt::distance(sand_f, hrev_f)
+						<< "\n    (R-H): " << Tnt::distance(srh_f, hrev_f);
+					Tnt tempPower(POWER_STR);
+					oss << "\n  Range: " << sand_f.z - tempPower.z << " blocks = " << (sand_f.z - tempPower.z)/16.0 << " chunks\n";
+
+					oss << "\n-- Flight Times --\n";
+					oss << "  Freefall ticks: " << FALL_TICKS << "\n";
+					oss << "  SAND final ticks: " << SAND_FINAL_TICKS << "\n";
+					oss << "  SR_H final ticks: " << SRH_FINAL_TICKS << "\n";
+					oss << "  HR final ticks: " << HREV_FINAL_TICKS << "\n";
+
+                    oss << "\n-- Flight Paths (z,y) --\n";
+                    print_paths_csv(oss, "SAND_path", sand_path);
+                    print_paths_csv(oss, "SR_H_path", srh_path);
+                    print_paths_csv(oss, "HR_path", hrev_path);
+                    oss << "-----------------------------------------\n";
+
+                    {
+                        std::lock_guard<std::mutex> lk(output_mutex);
+                        std::cout << oss.str();
+                    }
                 }
             }
         }
-
-        if (!any_chain) {
-            std::lock_guard<std::mutex> lk(output_mutex);
-            std::cout << "[thread " << threadNum << " n_pow=" << n_pow << "] No chains met constraints.\n";
-        }
     }
-
-    std::cout << "Thread[" << threadNum << "] finished\n";
 }
-
-
 
 int main() {
     std::cout << std::setprecision(17);
 
     // Configure the global power range here
     const int n_pow_min = 40;
-    const int n_pow_max = 40;
+    const int n_pow_max = 120;
 
     unsigned int thread_count = std::max(1u, std::thread::hardware_concurrency() - 4u);
     std::cout << "Available threads: " << thread_count << std::endl;
