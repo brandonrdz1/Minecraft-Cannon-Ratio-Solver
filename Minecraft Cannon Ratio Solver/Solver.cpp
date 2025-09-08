@@ -6,7 +6,7 @@
 #include <thread>
 #include <mutex>
 
-const int ratio_size = 13;
+const int ratio_size = 3;
 class Tnt {
 public:
     double x = 0.0, y = 0.0, z = 0.0;
@@ -206,13 +206,16 @@ unsigned int final_hammer_amount;
 void process_range(int threadNum, const std::vector<int>& assigned_powers) {
     // ---------------- config ----------------
     // Per-entity target heights (customize these)
-    const double target_y_sand = -62.2;
-    const double target_y_srh = -62.3;
-    const double target_y_hr = -62.4;
+
+    /*
+    double target_y_sand = -62.036;
+    double target_y_srh = -62.3311;
+    double target_y_hr = -62.83;
+    */
 
     // Fraction window for z
     const double frac_lo = 0.49, frac_hi = 0.51;
-    const double distance_herv_threshold = 1.0;
+    const double distance_herv_threshold = 2.0;
 
     const double x_min_sand = -129092.5, x_max_sand = -129090.5;
     const double x_min_srh = -129102.5, x_max_srh = -129100.5;
@@ -228,11 +231,11 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
     const int Z_WINDOW_BLOCKS_HR = 2;
 
     const int    booster_amount = 40;
-    const double x_tol = 1e-6;
-    const int    max_bisect_iters = 60;
+    const double x_tol = 1e-9;
+    const int    max_bisect_iters = 100;
 
     const double power_y = -63.0; // "above power" means final y > -63.0
-    const char* POWER_STR = "-129115.50999999046 -63.0 67096.50999999046";
+    const char* POWER_STR = "-129115.50999999046 -63.0 67096.5";
 
     const double SAND_X0 = -129092.49000000954, SAND_Y0 = -40.980000019073486;
     const double SRH_X0 = -129102.49000000954, SRH_Y0 = -40.980000019073486;
@@ -244,9 +247,9 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
 
     // Flight times
 	const int FALL_TICKS = 11;
-	const int SAND_FINAL_TICKS = 4;
-	const int SRH_FINAL_TICKS = 5;
-	const int HREV_FINAL_TICKS = 6;
+	const int SAND_FINAL_TICKS = 5;
+	const int SRH_FINAL_TICKS = 6;
+	const int HREV_FINAL_TICKS = 7;
 
     auto frac = [](double z) { return (z - std::floor(z)); };
 
@@ -269,7 +272,7 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
         };
     auto print_paths_csv = [&](std::ostream& os, const std::string& label,
         const std::vector<std::pair<double, double>>& path) {
-            os << label << " (z,y)\n";
+            // os << label << " (z,y)\n";
             for (size_t i = 0; i < path.size(); ++i) {
                 os << path[i].first << "," << path[i].second << "\n";
             }
@@ -476,107 +479,162 @@ void process_range(int threadNum, const std::vector<int>& assigned_powers) {
             std::cout << oss.str();
         }
 
-        // Stage 1: SAND
-        for (int iz_s = -16 * Z_WINDOW_BLOCKS_SAND; iz_s <= 16 * Z_WINDOW_BLOCKS_SAND; ++iz_s) {
-            double z_sand = std::round((z0_sand + iz_s * Z_STEP) * 16.0) / 16.0;
-            double x_sand, y_sand; std::string why_sand;
-            if (!solve_booster_x_below(0, x_min_sand, x_max_sand, z_sand, n_pow,
-                target_y_sand, x_sand, y_sand, why_sand))
-                continue;
+        short int start_ratio[ratio_size] = { -4, -4, -4 };
+        short int current_ratio[ratio_size] = { -4, -4, -4 };
+        short int final_ratio[ratio_size] = { 4, 4, 4 };
+        do {
+            double target_y_sand = -62.1 + current_ratio[0] * 0.002;
+            double target_y_srh = -62.3 + current_ratio[1] * 0.002;
+            double target_y_hr = -62.8 + current_ratio[2] * 0.002;
 
-            Tnt sand_fin;
-            simulate_entity(0, x_sand, z_sand, n_pow, sand_fin);
-            if (!meets_constraints(sand_fin, target_y_sand)) continue;
 
-            // Stage 2: SR_H (must share z block with SAND)
-            for (int iz_r = -16 * Z_WINDOW_BLOCKS_SRH; iz_r <= 16 * Z_WINDOW_BLOCKS_SRH; ++iz_r) {
-                double z_srh = std::round((z0_srh + iz_r * Z_STEP) * 16.0) / 16.0;
-                double x_srh, y_srh; std::string why_srh;
-                if (!solve_booster_x_below(1, x_min_srh, x_max_srh, z_srh, n_pow,
-                    target_y_srh, x_srh, y_srh, why_srh))
+            // Stage 1: SAND
+            for (int iz_s = -16 * Z_WINDOW_BLOCKS_SAND; iz_s <= 16 * Z_WINDOW_BLOCKS_SAND; ++iz_s) {
+                double z_sand = std::round((z0_sand + iz_s * Z_STEP) * 16.0) / 16.0;
+                double x_sand, y_sand; std::string why_sand;
+                if (!solve_booster_x_below(0, x_min_sand, x_max_sand, z_sand, n_pow,
+                    target_y_sand, x_sand, y_sand, why_sand))
                     continue;
 
-                Tnt srh_fin;
-                simulate_entity(1, x_srh, z_srh, n_pow, srh_fin);
-                if (!meets_constraints(srh_fin, target_y_srh)) continue;
+                Tnt sand_fin;
+                simulate_entity(0, x_sand, z_sand, n_pow, sand_fin);
+                if (!meets_constraints(sand_fin, target_y_sand)) continue;
 
-                long bs = (long)std::floor(sand_fin.z);
-                long br = (long)std::floor(srh_fin.z);
-                if (bs != br) continue;
-
-                // Stage 3: HR (final)
-                for (int iz_h = -16 * Z_WINDOW_BLOCKS_HR; iz_h <= 16 * Z_WINDOW_BLOCKS_HR; ++iz_h) {
-                    double z_hr = std::round((z0_hr + iz_h * Z_STEP) * 16.0) / 16.0;
-                    double x_hr, y_hr; std::string why_hr;
-                    if (!solve_booster_x_below(2, x_min_hr, x_max_hr, z_hr, n_pow,
-                        target_y_hr, x_hr, y_hr, why_hr))
+                // Stage 2: SR_H (must share z block with SAND)
+                for (int iz_r = -16 * Z_WINDOW_BLOCKS_SRH; iz_r <= 16 * Z_WINDOW_BLOCKS_SRH; ++iz_r) {
+                    double z_srh = std::round((z0_srh + iz_r * Z_STEP) * 16.0) / 16.0;
+                    double x_srh, y_srh; std::string why_srh;
+                    if (!solve_booster_x_below(1, x_min_srh, x_max_srh, z_srh, n_pow,
+                        target_y_srh, x_srh, y_srh, why_srh))
                         continue;
 
-                    Tnt hr_fin;
-                    simulate_entity(2, x_hr, z_hr, n_pow, hr_fin);
-                    if (Tnt::distance(hr_fin,srh_fin) > distance_herv_threshold) continue;
+                    Tnt srh_fin;
+                    simulate_entity(1, x_srh, z_srh, n_pow, srh_fin);
+                    if (!meets_constraints(srh_fin, target_y_srh)) continue;
 
-                    // Full chain found — gather traces and print ONCE atomically
-                    Tnt sand_f, srh_f, hrev_f, b_sand_f, b_srh_f, b_hr_f;
-                    std::vector<std::pair<double, double>> sand_path, srh_path, hrev_path;
-                    sand_path.reserve(FALL_TICKS + SAND_FINAL_TICKS);
-                    srh_path.reserve(FALL_TICKS + SRH_FINAL_TICKS);
-                    hrev_path.reserve(FALL_TICKS + HREV_FINAL_TICKS);
+                    long bs = (long)std::floor(sand_fin.z);
+                    long br = (long)std::floor(srh_fin.z);
+                    if (bs != br) continue;
 
-                    simulate_full_chain_with_trace(
-                        n_pow,
-                        x_sand, z_sand,
-                        x_srh, z_srh,
-                        x_hr, z_hr,
-                        sand_f, srh_f, hrev_f,
-                        b_sand_f, b_srh_f, b_hr_f,
-                        sand_path, srh_path, hrev_path
-                    );
+                    // Stage 3: HR (final)
+                    for (int iz_h = -16 * Z_WINDOW_BLOCKS_HR; iz_h <= 16 * Z_WINDOW_BLOCKS_HR; ++iz_h) {
+                        double z_hr = std::round((z0_hr + iz_h * Z_STEP) * 16.0) / 16.0;
+                        double x_hr, y_hr; std::string why_hr;
+                        if (!solve_booster_x_below(2, x_min_hr, x_max_hr, z_hr, n_pow,
+                            target_y_hr, x_hr, y_hr, why_hr))
+                            continue;
 
-                    std::ostringstream oss;
-                    header(oss, "H-HIT (FULL CHAIN + PATHS)");
-                    kv(oss, "n_pow", n_pow);
-                    kv(oss, "S.z_snap", z_sand); kv(oss, "S.booster_x", x_sand);
-                    kv(oss, "R.z_snap", z_srh);  kv(oss, "R.booster_x", x_srh);
-                    kv(oss, "H.z_snap", z_hr);   kv(oss, "H.booster_x", x_hr);
+                        Tnt hr_fin;
+                        simulate_entity(2, x_hr, z_hr, n_pow, hr_fin);
+                        if (Tnt::distance(hr_fin, srh_fin) > distance_herv_threshold && (hr_fin.y + Tnt::explosion_height) < srh_fin.y) continue;
 
-                    oss << "\n-- Final Entity States --\n";
-                    print_entity(oss, "SAND", sand_f);
-                    print_entity(oss, "SR_H", srh_f);
-                    print_entity(oss, "HR", hrev_f);
+                        // Full chain found — gather traces and print ONCE atomically
+                        Tnt sand_f, srh_f, hrev_f, b_sand_f, b_srh_f, b_hr_f;
+                        std::vector<std::pair<double, double>> sand_path, srh_path, hrev_path;
+                        sand_path.reserve(FALL_TICKS + SAND_FINAL_TICKS);
+                        srh_path.reserve(FALL_TICKS + SRH_FINAL_TICKS);
+                        hrev_path.reserve(FALL_TICKS + HREV_FINAL_TICKS);
 
-                    oss << "\n-- Booster Entities --\n";
-                    print_entity(oss, "B_SAND", b_sand_f);
-                    print_entity(oss, "B_SRH", b_srh_f);
-                    print_entity(oss, "B_HR", b_hr_f);
+                        simulate_full_chain_with_trace(
+                            n_pow,
+                            x_sand, z_sand,
+                            x_srh, z_srh,
+                            x_hr, z_hr,
+                            sand_f, srh_f, hrev_f,
+                            b_sand_f, b_srh_f, b_hr_f,
+                            sand_path, srh_path, hrev_path
+                        );
 
-					oss << "\n-- Trajectory Data --\n";
-                    oss << "  Distance Between Entities:" 
-						<< "\n    (S-R): " << Tnt::distance(sand_f, srh_f)
-						<< "\n    (S-H): " << Tnt::distance(sand_f, hrev_f)
-						<< "\n    (R-H): " << Tnt::distance(srh_f, hrev_f);
-					Tnt tempPower(POWER_STR);
-					oss << "\n  Range: " << sand_f.z - tempPower.z << " blocks = " << (sand_f.z - tempPower.z)/16.0 << " chunks\n";
+                        std::ostringstream oss;
+                        header(oss, "H-HIT (FULL CHAIN + PATHS)");
+                        kv(oss, "n_pow", n_pow);
+                        kv(oss, "S.z_snap", z_sand); kv(oss, "S.booster_x", x_sand);
+                        kv(oss, "R.z_snap", z_srh);  kv(oss, "R.booster_x", x_srh);
+                        kv(oss, "H.z_snap", z_hr);   kv(oss, "H.booster_x", x_hr);
 
-					oss << "\n-- Flight Times --\n";
-					oss << "  Freefall ticks: " << FALL_TICKS << "\n";
-					oss << "  SAND final ticks: " << SAND_FINAL_TICKS << "\n";
-					oss << "  SR_H final ticks: " << SRH_FINAL_TICKS << "\n";
-					oss << "  HR final ticks: " << HREV_FINAL_TICKS << "\n";
+                        oss << "\n-- Final Projectile States --\n";
+                        print_entity(oss, "S", sand_f);
+                        print_entity(oss, "SR_H", srh_f);
+                        print_entity(oss, "HR", hrev_f);
 
-                    oss << "\n-- Flight Paths (z,y) --\n";
-                    print_paths_csv(oss, "SAND_path", sand_path);
-                    print_paths_csv(oss, "SR_H_path", srh_path);
-                    print_paths_csv(oss, "HR_path", hrev_path);
-                    oss << "-----------------------------------------\n";
+                        oss << "\n-- Booster Projectile --\n";
+                        print_entity(oss, "B_S", b_sand_f);
+                        print_entity(oss, "B_SRH", b_srh_f);
+                        print_entity(oss, "B_HR", b_hr_f);
 
-                    {
-                        std::lock_guard<std::mutex> lk(output_mutex);
-                        std::cout << oss.str();
+                        oss << "\n-- Trajectory Data --\n";
+                        oss << "  Distance Between Projectiles:"
+                            << "\n    (S-R): " << Tnt::distance(sand_f, srh_f)
+                            << "\n    (S-H): " << Tnt::distance(sand_f, hrev_f)
+                            << "\n    (R-H): " << Tnt::distance(srh_f, hrev_f);
+                        Tnt tempPower(POWER_STR);
+                        oss << "\n  Range: " << sand_f.z - tempPower.z << " meters = " << (sand_f.z - tempPower.z) / 16.0 << " m16\n";
+
+                        oss << "\n-- Flight Times --\n";
+                        oss << "  Freefall: " << FALL_TICKS << "\n";
+                        oss << "  S final: " << SAND_FINAL_TICKS << "\n";
+                        oss << "  SR_H final: " << SRH_FINAL_TICKS << "\n";
+                        oss << "  HR final: " << HREV_FINAL_TICKS << "\n";
+
+                        oss << "\n-- Flight Paths (z,y) --\n";
+                        print_paths_csv(oss, "S_path", sand_path);
+                        print_paths_csv(oss, "SR_H_path", srh_path);
+                        print_paths_csv(oss, "HR_path", hrev_path);
+                        oss << "-----------------------------------------\n";
+
+
+                        // want to find how much rev tnt is needed for sand rev and hammer rev to push sand and hammer vertically up to same block (within y.0 and y.02)
+                        Tnt sandReved = sand_f;
+                        Tnt sandRev = srh_f;
+                        Tnt hammerReved = srh_f;
+                        Tnt hammerRev = hrev_f;
+
+						bool found = false;
+
+                        for (int srev_tnt = 0; srev_tnt <= 500; srev_tnt++) {
+                            for (int hrev_tnt = 0; hrev_tnt <= 500; hrev_tnt++) {
+                                sandReved = sand_f;
+                                sandRev = srh_f;
+                                hammerReved = srh_f;
+                                hammerRev = hrev_f;
+
+                                sandRev.amount = srev_tnt;
+                                hammerRev.amount = hrev_tnt;
+
+                                sandReved.explosion(sandRev);
+                                hammerReved.explosion(hammerRev);
+
+                                sandReved.freefall(1);
+                                hammerReved.freefall(1);
+
+                                double decimalSand = hammerReved.y - std::floor(hammerReved.y);
+                                int blockSand = (int)std::floor(hammerReved.y);
+                                double decimalHammer = sandReved.y - std::floor(sandReved.y);
+                                int blockHammer = (int)std::floor(sandReved.y);
+								double sand_dz = sandReved.z - sand_f.z;
+								double hammer_dz = hammerReved.z - srh_f.z;
+
+                                if (blockSand == blockHammer && decimalSand > 0.0 && decimalSand < 0.02 && decimalHammer > 0.0 && decimalHammer < 0.02 && sand_dz > 0 && hammer_dz > 0) {// && decimalSand > 0.0 && decimalSand < 0.02 && decimalHammer > 0.0 && decimalHammer < 0.02
+                                    found = true;
+                                    oss << "  S REV EXP: " << srev_tnt << " (final z,y: " << std::setprecision(15) << sandReved.z << ", " << sandReved.y << ") dz: " << sand_dz << "\n";
+                                    oss << "  HR REV EXP: " << hrev_tnt << " (final z,y: " << std::setprecision(15) << hammerReved.z << ", " << hammerReved.y << ") dz: " << hammer_dz << "\n";
+                                    oss << "\n";
+                                }
+                            }
+                        }
+
+                        if (found)
+                        {
+                            std::lock_guard<std::mutex> lk(output_mutex);
+                            std::cout << oss.str();
+                        }
+                        else {
+                            oss.clear();
+                        }
                     }
                 }
             }
-        }
+		} while (generateNextPermutation(current_ratio, start_ratio, final_ratio));
     }
 }
 
@@ -585,9 +643,9 @@ int main() {
 
     // Configure the global power range here
     const int n_pow_min = 40;
-    const int n_pow_max = 120;
+    const int n_pow_max = 200;
 
-    unsigned int thread_count = std::max(1u, std::thread::hardware_concurrency() - 4u);
+    unsigned int thread_count = std::max(1u, std::thread::hardware_concurrency() - 1u);
     std::cout << "Available threads: " << thread_count << std::endl;
 
     const int start = n_pow_min, end = n_pow_max;

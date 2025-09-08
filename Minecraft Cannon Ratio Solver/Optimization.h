@@ -323,6 +323,72 @@ public:
         booster_amounts = population[best_idx];
         return fitness[best_idx];
     }
+    /**
+     * Simulated Annealing (real-valued) over a small vector<double>.
+     * - Works with continuous variables and clamps to per-dimension [lo, hi].
+     * - Use for optimizing (target_y_sand, target_y_srh, target_y_hr).
+     */
+    static double optimize_real_simulated_annealing_vec(
+        const std::function<double(const std::vector<double>&)>& objective,
+        std::vector<double>& x,                  // in/out: initial guess -> best
+        const std::vector<double>& lo,           // inclusive lower bounds (same size as x)
+        const std::vector<double>& hi,           // inclusive upper bounds (same size as x)
+        int    max_iterations = 2500,
+        double initial_temperature = 1.0,
+        double cooling_rate = 0.996,
+        double step_scale = 0.025       // proposal step ~ (hi-lo)*step_scale
+    ) {
+        if (x.size() != lo.size() || x.size() != hi.size()) {
+            throw std::runtime_error("optimize_real_simulated_annealing_vec: size mismatch");
+        }
+        std::random_device rd;
+        std::mt19937_64 rng(rd());
+        std::uniform_real_distribution<double> U01(0.0, 1.0);
+
+        auto clamp = [&](std::vector<double>& v) {
+            for (size_t i = 0; i < v.size(); ++i) {
+                v[i] = std::min(hi[i], std::max(lo[i], v[i]));
+            }
+            };
+
+        // ensure starting point is in bounds
+        clamp(x);
+
+        std::vector<double> span(x.size());
+        for (size_t i = 0; i < x.size(); ++i) span[i] = hi[i] - lo[i];
+
+        double T = initial_temperature;
+        double fx = objective(x);
+        std::vector<double> best = x;
+        double fbest = fx;
+
+        std::vector<double> cand(x.size());
+
+        for (int it = 0; it < max_iterations; ++it) {
+            // propose new candidate by small uniform step in each dimension
+            cand = x;
+            for (size_t i = 0; i < x.size(); ++i) {
+                double step = (U01(rng) * 2.0 - 1.0) * span[i] * step_scale;
+                cand[i] += step;
+            }
+            clamp(cand);
+            double fc = objective(cand);
+
+            double accept_p = 1.0;
+            double df = fc - fx;
+            if (df > 0.0) accept_p = std::exp(-df / std::max(1e-12, T));
+
+            if (U01(rng) < accept_p) {
+                x = cand;
+                fx = fc;
+                if (fx < fbest) { fbest = fx; best = x; }
+            }
+            T *= cooling_rate;
+        }
+
+        x = best;
+        return fbest;
+    }
 
 };
 
